@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>訂餐系統</title>
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, arrayUnion, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
+
+const app = initializeApp({
+  apiKey: "AIzaSyCBJz_iDy1Mf4eIg7ptXsk4OgnO8xhyGTs",
+  authDomain: "order-16c59.firebaseapp.com",
+  projectId: "order-16c59",
+  storageBucket: "order-16c59.firebasestorage.app",
+  messagingSenderId: "667626311137",
+  appId: "1:667626311137:web:d45a57d9049832cd0996a0"
+});
+const db = getFirestore(app);
+
+let currentOrder = null;
+let unsub = null;
+
+function $(id){ return document.getElementById(id); }
+
+function showTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+  if(tab === 'accounts') loadAccounts();
+  if(tab === 'history') loadHistory();
+  if(tab === 'stores') loadStores();
+}
+
+function showSection(sec){
+  document.querySelectorAll('.order-section').forEach(s => s.classList.toggle('active', s.id === 'sec-' + sec));
+}
+
+async function loadStoreButtons(){
+  const snap = await getDocs(collection(db, 'stores'));
+  const wrap = $('store-btns');
+  wrap.innerHTML = '';
+  snap.docs.forEach(d => {
+    const s = d.data();
+    const btn = document.createElement('button');
+    btn.className = 'btn-sm';
+    btn.textContent = s.name;
+    btn.onclick = () => loadStoreToForm(s);
+    wrap.appendChild(btn);
+  });
+}
+
+function loadStoreToForm(s){
+  $('new-store-name').value = s.name;
+  const container = $('new-menu-items');
+  container.innerHTML = '';
+  s.menuItems.forEach(m => addMenuRow(m.name, m.price));
+}
+
+function addMenuRow(name='', price=''){
+  const container = $('new-menu-items');
+  const div = document.createElement('div');
+  div.className = 'menu-row';
+  div.innerHTML = `<input class="inp" placeholder="品項名稱" value="${name}"><input class="inp price-inp" placeholder="價格" type="number" value="${price}"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
+  container.appendChild(div);
+}
+
+async function createOrder(){
+  const storeName = $('new-store-name').value.trim();
+  const deadline = $('new-deadline').value;
+  const payer = $('new-payer').value.trim();
+  const rows = document.querySelectorAll('#new-menu-items .menu-row');
+  const menuItems = [];
+  rows.forEach(r => {
+    const name = r.querySelector('input').value.trim();
+    const price = Number(r.querySelector('.price-inp').value);
+    if(name && price) menuItems.push({ name, price });
+  });
+  if(!storeName || !payer) return alert('請填寫店家名稱和付款人');
+  if(menuItems.length === 0) return alert('請至少新增一個菜單品項');
+  $('create-btn').textContent = '建立中...';
+  $('create-btn').disabled = true;
+  const ref = await addDoc(collection(db, 'orders'), {
+    storeName, deadline, payer, menuItems, status: 'open',
+    createdAt: new Date().toISOString(), entries: []
+  });
+  currentOrder = { id: ref.id, storeName, deadline, payer, menuItems, status: 'open', entries: [] };
+  $('create-btn').textContent = '建立訂單';
+  $('create-btn').disabled = false;
+  showSection('order');
+  renderOrder();
+  subscribeOrder();
+}
+
+function subscribeOrder(){
+  if(unsub) unsub();
+  if(!currentOrder) return;
+  unsub = onSnapshot(doc(db, 'orders', currentOrder.id), snap => {
+    if(snap.exists()){
+      currentOrder = { id: snap.id, ...snap.data() };
+      renderOrder();
+    }
+  });
+}
+
+function renderOrder(){
+  if(!currentOrder){ $('no-order').style.display='block'; $('order-content').style.display='none'; return; }
+  $('no-order').style.display='none';
+  $('order-content').style.display='block';
+  $('order-title').textContent = currentOrder.storeName;
+  $('order-deadline').textContent = '截止：' + currentOrder.deadline.replace('T',' ');
+  $('payer-name').textContent = currentOrder.payer;
+  $('payer-name2').textContent = currentOrder.payer;
+
+  const menu = $('menu-list');
+  menu.innerHTML = '';
+  currentOrder.menuItems.forEach(item => {
+    const key = item.name.replace(/[^a-zA-Z0-9]/g,'_');
+    menu.innerHTML += `<div class="menu-item">
+      <span>${item.name}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="price-label">$${item.price}</span>
+        <button class="qb" onclick="chg('${item.name}',-1)">−</button>
+        <span id="q-${key}">0</span>
+        <button class="qb" onclick="chg('${item.name}',1)">+</button>
+      </div>
+    </div>`;
+  });
+
+  const entries = $('entries-list');
+  entries.innerHTML = '';
+  if(currentOrder.entries.length === 0){
+    entries.innerHTML = '<div style="color:#bbb;font-size:13px;padding:.5rem 0">還沒有人訂餐</div>';
+  } else {
+    currentOrder.entries.forEach((e,i) => {
+      entries.innerHTML += `<div class="person-row">
+        <div class="av">${e.name[0]}</div>
+        <div style="flex:1">
+          <div class="name-text">${e.name}</div>
+          <div class="sub-text">${e.items.map(it=>`${it.name} x${it.qty}`).join('、')} → $${e.total}${e.note?' ・'+e.note:''}</div>
+        </div>
+        <span class="badge ${e.paid?'b-ok':'b-warn'}">${e.paid?'已付':'未付'}</span>
+      </div>`;
+    });
+  }
+  updateMyTotal();
+}
+
+const myQty = {};
+function chg(name, delta){
+  myQty[name] = Math.max(0, (myQty[name]||0) + delta);
+  const key = name.replace(/[^a-zA-Z0-9]/g,'_');
+  const el = document.getElementById('q-'+key);
+  if(el) el.textContent = myQty[name];
+  updateMyTotal();
+}
+
+function updateMyTotal(){
+  if(!currentOrder) return;
+  const items = Object.entries(myQty).filter(([,v])=>v>0);
+  const total = items.reduce((s,[n,v])=>{
+    const item = currentOrder.menuItems.find(m=>m.name===n);
+    return s + (item ? item.price*v : 0);
+  }, 0);
+  $('my-total').textContent = '$' + total;
+  const summary = $('my-summary');
+  if(items.length === 0){
+    summary.innerHTML = '<span style="color:#bbb">尚未選擇品項</span>';
+  } else {
+    summary.innerHTML = items.map(([n,v])=>{
+      const item = currentOrder.menuItems.find(m=>m.name===n);
+      return `<div class="summary-row"><span>${n} x${v}</span><span>$${item?item.price*v:0}</span></div>`;
+    }).join('');
+  }
+  const name = $('my-name').value.trim();
+  $('submit-btn').disabled = items.length===0 || !name;
+}
+
+async function submitOrder(){
+  const name = $('my-name').value.trim();
+  if(!name) return alert('請輸入名字');
+  const items = Object.entries(myQty).filter(([,v])=>v>0).map(([n,v])=>{
+    const item = currentOrder.menuItems.find(m=>m.name===n);
+    return { name:n, qty:v, price:item.price };
+  });
+  if(items.length===0) return alert('請選擇品項');
+  const total = items.reduce((s,it)=>s+it.price*it.qty,0);
+  const entry = { name, items, note:$('my-note').value, total, paid:false, createdAt:new Date().toISOString() };
+  await updateDoc(doc(db,'orders',currentOrder.id),{ entries: arrayUnion(entry) });
+  $('submit-btn').textContent = '已送出！';
+  $('submit-btn').disabled = true;
+  Object.keys(myQty).forEach(k=>myQty[k]=0);
+}
+
+async function loadAccounts(){
+  const snap = await getDocs(collection(db,'orders'));
+  const orders = snap.docs.map(d=>({id:d.id,...d.data()}));
+  const allEntries = orders.flatMap(o=>o.entries.map((e,i)=>({...e,orderId:o.id,entryIndex:i,storeName:o.storeName,payer:o.payer,date:o.createdAt?.slice(0,10)})));
+  const people = {};
+  allEntries.forEach(e=>{
+    if(!people[e.name]) people[e.name]={total:0,unpaid:0};
+    people[e.name].total += e.total;
+    if(!e.paid) people[e.name].unpaid += e.total;
+  });
+  const totalSpent = Object.values(people).reduce((s,p)=>s+p.total,0);
+  const totalUnpaid = Object.values(people).reduce((s,p)=>s+p.unpaid,0);
+  $('stat-spent').textContent = '$'+totalSpent;
+  $('stat-unpaid').textContent = '$'+totalUnpaid;
+  $('stat-orders').textContent = orders.length;
+
+  $('people-list').innerHTML = Object.entries(people).map(([name,p])=>`
+    <div class="person-row">
+      <div class="av">${name[0]}</div>
+      <div style="flex:1"><div class="name-text">${name}</div><div class="sub-text">累積 $${p.total}・未付 $${p.unpaid}</div></div>
+      ${p.unpaid===0?'<span class="badge b-ok">結清</span>':`<span class="tag-debt">欠款 $${p.unpaid}</span>`}
+    </div>`).join('') || '<div style="color:#bbb;font-size:13px">尚無資料</div>';
+
+  const unpaid = allEntries.filter(e=>!e.paid);
+  $('unpaid-list').innerHTML = unpaid.length===0 ? '<div style="color:#bbb;font-size:13px">所有人都已結清</div>' :
+    unpaid.map((e)=>`
+    <div class="settle-row">
+      <div><div style="font-size:14px">${e.name} 欠 ${e.payer}</div><div class="sub-text">${e.date} ${e.storeName}</div></div>
+      <div style="text-align:right">
+        <div style="font-weight:500">$${e.total}</div>
+        <button class="btn-sm" style="margin-top:4px" onclick="markPaid('${e.orderId}',${e.entryIndex})">標記已還</button>
+      </div>
+    </div>`).join('');
+}
+
+async function markPaid(orderId, entryIndex){
+  const snap = await getDocs(collection(db,'orders'));
+  const orderDoc = snap.docs.find(d=>d.id===orderId);
+  if(!orderDoc) return;
+  const entries = [...orderDoc.data().entries];
+  entries[entryIndex] = {...entries[entryIndex], paid:true};
+  await updateDoc(doc(db,'orders',orderId),{entries});
+  loadAccounts();
+}
+
+async function loadHistory(){
+  const snap = await getDocs(query(collection(db,'orders'),orderBy('createdAt','desc')));
+  const orders = snap.docs.map(d=>({id:d.id,...d.data()}));
+  $('history-list').innerHTML = orders.length===0 ? '<div style="color:#bbb;font-size:13px">尚無記錄</div>' :
+    orders.map(o=>{
+      const total = o.entries.reduce((s,e)=>s+e.total,0);
+      const allPaid = o.entries.length>0 && o.entries.every(e=>e.paid);
+      return `<div class="order-hist">
+        <div>
+          <div style="font-weight:500">${o.storeName}</div>
+          <div class="sub-text">${o.createdAt?.slice(0,10)} · ${o.entries.length} 人 · 付款人：${o.payer}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:500">$${total}</div>
+          <span class="badge ${o.status==='open'?'b-info':allPaid?'b-ok':'b-warn'}" style="margin-top:4px;display:inline-block">${o.status==='open'?'進行中':allPaid?'已完成':'未結清'}</span>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+async function loadStores(){
+  const snap = await getDocs(collection(db,'stores'));
+  const stores = snap.docs.map(d=>({id:d.id,...d.data()}));
+  $('stores-list').innerHTML = stores.length===0 ? '<div style="color:#bbb;font-size:13px;padding-bottom:1rem">尚無店家</div>' :
+    stores.map(s=>`
+    <div class="store-item">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:500">${s.name}</div>
+          <div class="sub-text">${s.menuItems.map(m=>`${m.name}$${m.price}`).join('、')}</div>
+          <div style="font-size:12px;margin-top:4px">外送門檻：<strong>${s.threshold?'$'+s.threshold:'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>
+        </div>
+        <button class="btn-sm" onclick="toggleStoreEdit('${s.id}','${s.threshold||''}','${s.note||''}')">編輯</button>
+      </div>
+      <div id="store-edit-${s.id}" style="display:none;margin-top:10px;background:#f9f9f9;border-radius:8px;padding:10px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div><label class="lbl">外送門檻</label><input class="inp" type="number" placeholder="無門檻留空" id="threshold-${s.id}" style="width:100px"></div>
+          <div><label class="lbl">備注</label><input class="inp" placeholder="例：需提前預訂" id="note-${s.id}" style="width:180px"></div>
+          <button class="btn-sm" onclick="saveStoreEdit('${s.id}')">儲存</button>
+          <button class="btn-sm" onclick="toggleStoreEdit('${s.id}')">取消</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleStoreEdit(id, threshold='', note=''){
+  const el = $('store-edit-'+id);
+  const showing = el.style.display !== 'none';
+  el.style.display = showing ? 'none' : 'block';
+  if(!showing){
+    $('threshold-'+id).value = threshold;
+    $('note-'+id).value = note;
+  }
+}
+
+async function saveStoreEdit(id){
+  await updateDoc(doc(db,'stores',id),{
+    threshold: Number($('threshold-'+id).value)||null,
+    note: $('note-'+id).value
+  });
+  loadStores();
+}
+
+function showNewStore(show){
+  $('new-store-form').style.display = show ? 'block' : 'none';
+}
+
+function addNewStoreRow(){
+  const c = $('new-store-items');
+  const div = document.createElement('div');
+  div.className = 'menu-row';
+  div.innerHTML = `<input class="inp" placeholder="品項名稱"><input class="inp price-inp" placeholder="價格" type="number"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
+  c.appendChild(div);
+}
+
+async function saveNewStore(){
+  const name = $('ns-name').value.trim();
+  if(!name) return alert('請輸入店家名稱');
+  const rows = document.querySelectorAll('#new-store-items .menu-row');
+  const menuItems = [];
+  rows.forEach(r=>{
+    const n = r.querySelector('input').value.trim();
+    const p = Number(r.querySelector('.price-inp').value);
+    if(n && p) menuItems.push({name:n, price:p});
+  });
+  if(menuItems.length===0) return alert('請至少新增一個品項');
+  await addDoc(collection(db,'stores'),{
+    name, threshold: Number($('ns-threshold').value)||null,
+    note: $('ns-note').value, menuItems
+  });
+  $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value='';
+  $('new-store-items').innerHTML='';
+  showNewStore(false);
+  loadStores();
+}
+
+window.showTab = showTab;
+window.showSection = showSection;
+window.addMenuRow = addMenuRow;
+window.createOrder = createOrder;
+window.chg = chg;
+window.submitOrder = submitOrder;
+window.markPaid = markPaid;
+window.toggleStoreEdit = toggleStoreEdit;
+window.saveStoreEdit = saveStoreEdit;
+window.showNewStore = showNewStore;
+window.addNewStoreRow = addNewStoreRow;
+window.saveNewStore = saveNewStore;
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadStoreButtons();
+  document.getElementById('today-date').textContent = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  document.getElementById('new-deadline').value = new Date().toISOString().slice(0,16);
+});
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;background:#f5f5f5}
+.container{max-width:800px;margin:0 auto;padding:1rem}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
+.header-title{font-size:20px;font-weight:500}
+.header-date{font-size:13px;color:#888;margin-top:2px}
+.tabs{display:flex;border-bottom:1px solid #eee;margin-bottom:1.5rem;background:#fff;border-radius:12px 12px 0 0;padding:0 .5rem}
+.tab-btn{padding:12px 18px;border:none;background:none;cursor:pointer;font-size:14px;color:#888;border-bottom:2px solid transparent;transition:all .15s}
+.tab-btn.active{color:#1a1a1a;border-bottom-color:#1a1a1a;font-weight:500}
+.tab-pane{display:none}.tab-pane.active{display:block}
+.card{background:#fff;border:1px solid #eee;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem}
+.sec-title{font-size:12px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+.btn-sm{padding:6px 12px;border:1px solid #ddd;border-radius:8px;background:none;font-size:13px;cursor:pointer}
+.btn-sm:hover{background:#f5f5f5}
+.btn-primary{padding:10px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;font-weight:500;cursor:pointer;width:100%;margin-top:10px}
+.btn-primary:hover{opacity:.85}
+.btn-primary:disabled{opacity:.35;cursor:default}
+.inp{padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:100%}
+.inp:focus{outline:none;border-color:#999}
+.lbl{font-size:13px;color:#888;display:block;margin-bottom:4px}
+.input-group{margin-bottom:.75rem}
+.badge{display:inline-block;padding:3px 9px;border-radius:8px;font-size:12px;font-weight:500}
+.b-ok{background:#EAF3DE;color:#27500A}
+.b-warn{background:#FFF3CD;color:#856404}
+.b-info{background:#E6F1FB;color:#0C447C}
+.tag-debt{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;background:#FCEBEB;color:#791F1F}
+.person-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f5f5f5}
+.person-row:last-child{border-bottom:none}
+.av{width:32px;height:32px;border-radius:50%;background:#EEEDFE;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#3C3489;flex-shrink:0}
+.name-text{font-size:14px;font-weight:500}
+.sub-text{font-size:12px;color:#888;margin-top:2px}
+.menu-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f5f5f5}
+.menu-item:last-child{border-bottom:none}
+.price-label{font-size:13px;color:#888}
+.qb{width:26px;height:26px;border-radius:50%;border:1px solid #ddd;background:none;cursor:pointer;font-size:15px}
+.qb:hover{background:#f5f5f5}
+.grid2{display:grid;grid-template-columns:1fr 260px;gap:1rem}
+.summary-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f5f5f5;font-size:13px}
+.total-row{display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;border-top:1px solid #eee;margin-top:6px}
+.payer-box{background:#E6F1FB;border:1px solid #B5D4F4;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:flex;align-items:center;gap:10px}
+.payer-av{width:28px;height:28px;border-radius:50%;background:#B5D4F4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#0C447C;flex-shrink:0}
+.stats{display:flex;gap:12px;margin-bottom:1.25rem}
+.stat{background:#f5f5f5;border-radius:8px;padding:1rem;flex:1}
+.stat-l{font-size:12px;color:#888;margin-bottom:4px}
+.stat-v{font-size:22px;font-weight:500}
+.settle-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f5f5f5}
+.settle-row:last-child{border-bottom:none}
+.order-hist{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f5f5f5}
+.order-hist:last-child{border-bottom:none}
+.store-item{padding:12px 0;border-bottom:1px solid #f5f5f5}
+.store-item:last-child{border-bottom:none}
+.menu-row{display:flex;gap:8px;margin-bottom:8px}
+.order-section{display:none}.order-section.active{display:block}
+@media(max-width:600px){.grid2{grid-template-columns:1fr}.stats{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <div class="header-title">訂餐系統</div>
+      <div class="header-date" id="today-date"></div>
+    </div>
+    <button class="btn-sm" onclick="showTab('today');showSection('new');loadStoreButtons()">+ 新增訂單</button>
+  </div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="today" onclick="showTab('today')">今日訂單</button>
+    <button class="tab-btn" data-tab="accounts" onclick="showTab('accounts')">帳務總覽</button>
+    <button class="tab-btn" data-tab="history" onclick="showTab('history')">歷史記錄</button>
+    <button class="tab-btn" data-tab="stores" onclick="showTab('stores')">常用店家</button>
+  </div>
+
+  <div class="tab-pane active" id="tab-today">
+    <div class="order-section" id="sec-new">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem">
+        <button class="btn-sm" onclick="showSection('order')">← 返回</button>
+        <span style="font-size:16px;font-weight:500">新增訂單</span>
+      </div>
+      <div class="card">
+        <div class="sec-title">店家資訊</div>
+        <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="new-store-name" placeholder="例：八方雲集"></div>
+        <div class="input-group"><label class="lbl">截止時間</label><input class="inp" id="new-deadline" type="datetime-local" style="width:220px"></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:.5rem">
+          <span style="font-size:13px;color:#888">常用店家：</span>
+          <div id="store-btns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec-title">付款人</div>
+        <div class="input-group"><label class="lbl">這次誰去拿餐付錢？</label><input class="inp" id="new-payer" placeholder="輸入付款人姓名" style="max-width:240px"></div>
+      </div>
+      <div class="card">
+        <div class="sec-title">菜單品項</div>
+        <div id="new-menu-items"></div>
+        <button class="btn-sm" style="margin-top:4px" onclick="addMenuRow()">+ 新增品項</button>
+      </div>
+      <button class="btn-sm" id="create-btn" onclick="createOrder()" style="padding:10px 20px;background:#1a1a1a;color:#fff;border-color:#1a1a1a">建立訂單</button>
+    </div>
+
+    <div class="order-section active" id="sec-order">
+      <div id="no-order" style="text-align:center;padding:3rem;color:#888">
+        <div style="font-size:16px;margin-bottom:8px">目前沒有進行中的訂單</div>
+        <div style="font-size:13px">點右上角「+ 新增訂單」開始</div>
+      </div>
+      <div id="order-content" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <span style="font-size:16px;font-weight:500" id="order-title"></span>
+          <span style="font-size:13px;color:#f59e0b" id="order-deadline"></span>
+        </div>
+        <div class="payer-box">
+          <div class="payer-av"></div>
+          <div>
+            <div style="font-size:13px;font-weight:500;color:#0C447C">本次付款人：<span id="payer-name"></span></div>
+            <div style="font-size:12px;color:#185FA5;margin-top:1px">訂單結束後，請將餐費交給 <span id="payer-name2"></span></div>
+          </div>
+        </div>
+        <div class="grid2">
+          <div>
+            <div class="card">
+              <div class="sec-title">菜單</div>
+              <div id="menu-list"></div>
+            </div>
+            <div class="card">
+              <div class="sec-title">已訂同事</div>
+              <div id="entries-list"></div>
+            </div>
+          </div>
+          <div>
+            <div class="card" style="position:sticky;top:1rem">
+              <div class="sec-title">我的訂單</div>
+              <div class="input-group"><label class="lbl">你的名字</label><input class="inp" id="my-name" placeholder="輸入名字" oninput="updateMyTotal()"></div>
+              <div id="my-summary" style="font-size:13px;color:#bbb;padding:.5rem 0">尚未選擇品項</div>
+              <div class="input-group" style="margin-top:.75rem"><label class="lbl">備注</label><textarea class="inp" id="my-note" rows="2" placeholder="例：不要香菜" style="resize:none"></textarea></div>
+              <div class="total-row"><span>小計</span><span id="my-total">$0</span></div>
+              <button class="btn-primary" id="submit-btn" disabled onclick="submitOrder()">送出訂單</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="tab-accounts">
+    <div class="stats">
+      <div class="stat"><div class="stat-l">總消費</div><div class="stat-v" id="stat-spent">$0</div></div>
+      <div class="stat"><div class="stat-l">未結清</div><div class="stat-v" id="stat-unpaid" style="color:#dc2626">$0</div></div>
+      <div class="stat"><div class="stat-l">訂單數</div><div class="stat-v" id="stat-orders">0</div></div>
+    </div>
+    <div class="card"><div class="sec-title">個人總覽</div><div id="people-list"></div></div>
+    <div class="card"><div class="sec-title">未結清明細</div><div id="unpaid-list"></div></div>
+  </div>
+
+  <div class="tab-pane" id="tab-history">
+    <div class="card"><div class="sec-title">訂單記錄</div><div id="history-list"></div></div>
+  </div>
+
+  <div class="tab-pane" id="tab-stores">
+    <div class="card"><div class="sec-title">店家列表</div><div id="stores-list"></div></div>
+    <button class="btn-sm" onclick="showNewStore(true)">+ 新增店家</button>
+    <div id="new-store-form" style="display:none;margin-top:1rem" class="card">
+      <div style="font-size:14px;font-weight:500;margin-bottom:1rem">新增店家</div>
+      <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="ns-name" placeholder="例：鮮茶道" style="max-width:300px"></div>
+      <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="ns-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
+      <div class="input-group"><label class="lbl">備注</label><input class="inp" id="ns-note" placeholder="例：需提前預訂" style="max-width:300px"></div>
+      <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" style="margin-top:4px" onclick="addNewStoreRow()">+ 新增品項</button></div>
+      <div style="display:flex;gap:8px;margin-top:.5rem">
+        <button onclick="saveNewStore()" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存店家</button>
+        <button class="btn-sm" onclick="showNewStore(false)">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
