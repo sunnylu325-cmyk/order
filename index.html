@@ -14,7 +14,7 @@ const app = initializeApp({
   projectId: "order-e395c",
   storageBucket: "order-e395c.firebasestorage.app",
   messagingSenderId: "77302517511",
-  appId: "1:77302517511:web:d45a57d9049832cd0996a0"
+  appId: "1:77302517511:web:2248241cbad0bb999cbfa2"
 });
 const db = getFirestore(app);
 
@@ -79,11 +79,20 @@ async function createOrder(){
   if(menuItems.length === 0) return alert('請至少新增一個菜單品項');
   $('create-btn').textContent = '建立中...';
   $('create-btn').disabled = true;
+
+  // 找看看有沒有對應的店家提醒
+  const storeSnap = await getDocs(collection(db, 'stores'));
+  let orderHint = '';
+  storeSnap.docs.forEach(d => {
+    const s = d.data();
+    if(s.name === storeName && s.orderHint) orderHint = s.orderHint;
+  });
+
   const ref = await addDoc(collection(db, 'orders'), {
-    storeName, deadline, payer, menuItems, status: 'open',
+    storeName, deadline, payer, menuItems, orderHint, status: 'open',
     createdAt: new Date().toISOString(), entries: []
   });
-  currentOrder = { id: ref.id, storeName, deadline, payer, menuItems, status: 'open', entries: [] };
+  currentOrder = { id: ref.id, storeName, deadline, payer, menuItems, orderHint, status: 'open', entries: [] };
   $('create-btn').textContent = '建立訂單';
   $('create-btn').disabled = false;
   showSection('order');
@@ -111,6 +120,15 @@ function renderOrder(){
   $('payer-name').textContent = currentOrder.payer;
   $('payer-name2').textContent = currentOrder.payer;
 
+  // 點餐提醒
+  const hintBox = $('order-hint-box');
+  if(currentOrder.orderHint){
+    hintBox.style.display = 'flex';
+    $('order-hint-text').textContent = currentOrder.orderHint;
+  } else {
+    hintBox.style.display = 'none';
+  }
+
   const menu = $('menu-list');
   menu.innerHTML = '';
   currentOrder.menuItems.forEach(item => {
@@ -131,7 +149,7 @@ function renderOrder(){
   if(currentOrder.entries.length === 0){
     entries.innerHTML = '<div style="color:#bbb;font-size:13px;padding:.5rem 0">還沒有人訂餐</div>';
   } else {
-    currentOrder.entries.forEach((e,i) => {
+    currentOrder.entries.forEach((e) => {
       entries.innerHTML += `<div class="person-row">
         <div class="av">${e.name[0]}</div>
         <div style="flex:1">
@@ -265,37 +283,67 @@ async function loadStores(){
       <div style="display:flex;align-items:flex-start;gap:10px">
         <div style="flex:1">
           <div style="font-size:14px;font-weight:500">${s.name}</div>
-          <div class="sub-text">${s.menuItems.map(m=>`${m.name}$${m.price}`).join('、')}</div>
-          <div style="font-size:12px;margin-top:4px">外送門檻：<strong>${s.threshold?'$'+s.threshold:'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>
+          <div class="sub-text" style="margin-top:3px">${s.menuItems.map(m=>`${m.name} $${m.price}`).join('、')}</div>
+          <div style="font-size:12px;margin-top:4px;color:#888">外送門檻：<strong style="color:#1a1a1a">${s.threshold?'$'+s.threshold:'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>
+          ${s.orderHint?`<div style="font-size:12px;margin-top:4px;background:#FFF3CD;color:#856404;padding:4px 8px;border-radius:6px;display:inline-block">點餐提醒：${s.orderHint}</div>`:''}
         </div>
-        <button class="btn-sm" onclick="toggleStoreEdit('${s.id}','${s.threshold||''}','${s.note||''}')">編輯</button>
-      </div>
-      <div id="store-edit-${s.id}" style="display:none;margin-top:10px;background:#f9f9f9;border-radius:8px;padding:10px">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-          <div><label class="lbl">外送門檻</label><input class="inp" type="number" placeholder="無門檻留空" id="threshold-${s.id}" style="width:100px"></div>
-          <div><label class="lbl">備注</label><input class="inp" placeholder="例：需提前預訂" id="note-${s.id}" style="width:180px"></div>
-          <button class="btn-sm" onclick="saveStoreEdit('${s.id}')">儲存</button>
-          <button class="btn-sm" onclick="toggleStoreEdit('${s.id}')">取消</button>
-        </div>
+        <button class="btn-sm" onclick="openStoreEdit('${s.id}')">編輯</button>
       </div>
     </div>`).join('');
 }
 
-function toggleStoreEdit(id, threshold='', note=''){
-  const el = $('store-edit-'+id);
-  const showing = el.style.display !== 'none';
-  el.style.display = showing ? 'none' : 'block';
-  if(!showing){
-    $('threshold-'+id).value = threshold;
-    $('note-'+id).value = note;
-  }
+async function openStoreEdit(id){
+  const snap = await getDocs(collection(db,'stores'));
+  const storeDoc = snap.docs.find(d=>d.id===id);
+  if(!storeDoc) return;
+  const s = storeDoc.data();
+  $('edit-store-id').value = id;
+  $('edit-store-name').value = s.name;
+  $('edit-threshold').value = s.threshold || '';
+  $('edit-note').value = s.note || '';
+  $('edit-order-hint').value = s.orderHint || '';
+  const itemsContainer = $('edit-menu-items');
+  itemsContainer.innerHTML = '';
+  s.menuItems.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'menu-row';
+    div.innerHTML = `<input class="inp" placeholder="品項名稱" value="${m.name}"><input class="inp price-inp" placeholder="價格" type="number" value="${m.price}"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
+    itemsContainer.appendChild(div);
+  });
+  $('edit-store-modal').style.display = 'flex';
 }
 
-async function saveStoreEdit(id){
-  await updateDoc(doc(db,'stores',id),{
-    threshold: Number($('threshold-'+id).value)||null,
-    note: $('note-'+id).value
+function closeStoreEdit(){
+  $('edit-store-modal').style.display = 'none';
+}
+
+function addEditMenuRow(){
+  const div = document.createElement('div');
+  div.className = 'menu-row';
+  div.innerHTML = `<input class="inp" placeholder="品項名稱"><input class="inp price-inp" placeholder="價格" type="number"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
+  $('edit-menu-items').appendChild(div);
+}
+
+async function saveStoreEdit(){
+  const id = $('edit-store-id').value;
+  const name = $('edit-store-name').value.trim();
+  if(!name) return alert('請輸入店家名稱');
+  const rows = document.querySelectorAll('#edit-menu-items .menu-row');
+  const menuItems = [];
+  rows.forEach(r=>{
+    const n = r.querySelector('input').value.trim();
+    const p = Number(r.querySelector('.price-inp').value);
+    if(n && p) menuItems.push({name:n, price:p});
   });
+  if(menuItems.length===0) return alert('請至少新增一個品項');
+  await updateDoc(doc(db,'stores',id),{
+    name,
+    threshold: Number($('edit-threshold').value)||null,
+    note: $('edit-note').value,
+    orderHint: $('edit-order-hint').value,
+    menuItems
+  });
+  closeStoreEdit();
   loadStores();
 }
 
@@ -324,9 +372,11 @@ async function saveNewStore(){
   if(menuItems.length===0) return alert('請至少新增一個品項');
   await addDoc(collection(db,'stores'),{
     name, threshold: Number($('ns-threshold').value)||null,
-    note: $('ns-note').value, menuItems
+    note: $('ns-note').value,
+    orderHint: $('ns-order-hint').value,
+    menuItems
   });
-  $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value='';
+  $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value=''; $('ns-order-hint').value='';
   $('new-store-items').innerHTML='';
   showNewStore(false);
   loadStores();
@@ -337,9 +387,12 @@ window.showSection = showSection;
 window.addMenuRow = addMenuRow;
 window.createOrder = createOrder;
 window.chg = chg;
+window.updateMyTotal = updateMyTotal;
 window.submitOrder = submitOrder;
 window.markPaid = markPaid;
-window.toggleStoreEdit = toggleStoreEdit;
+window.openStoreEdit = openStoreEdit;
+window.closeStoreEdit = closeStoreEdit;
+window.addEditMenuRow = addEditMenuRow;
 window.saveStoreEdit = saveStoreEdit;
 window.showNewStore = showNewStore;
 window.addNewStoreRow = addNewStoreRow;
@@ -392,7 +445,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .summary-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f5f5f5;font-size:13px}
 .total-row{display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;border-top:1px solid #eee;margin-top:6px}
 .payer-box{background:#E6F1FB;border:1px solid #B5D4F4;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:flex;align-items:center;gap:10px}
-.payer-av{width:28px;height:28px;border-radius:50%;background:#B5D4F4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#0C447C;flex-shrink:0}
+.hint-box{background:#FFF3CD;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:flex;align-items:flex-start;gap:8px}
 .stats{display:flex;gap:12px;margin-bottom:1.25rem}
 .stat{background:#f5f5f5;border-radius:8px;padding:1rem;flex:1}
 .stat-l{font-size:12px;color:#888;margin-bottom:4px}
@@ -405,6 +458,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .store-item:last-child{border-bottom:none}
 .menu-row{display:flex;gap:8px;margin-bottom:8px}
 .order-section{display:none}.order-section.active{display:block}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:100;align-items:center;justify-content:center;padding:1rem}
+.modal{background:#fff;border-radius:16px;padding:1.5rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
+.modal-title{font-size:16px;font-weight:500;margin-bottom:1.25rem}
 @media(max-width:600px){.grid2{grid-template-columns:1fr}.stats{flex-wrap:wrap}}
 </style>
 </head>
@@ -462,10 +518,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
           <span style="font-size:13px;color:#f59e0b" id="order-deadline"></span>
         </div>
         <div class="payer-box">
-          <div class="payer-av"></div>
+          <div style="width:28px;height:28px;border-radius:50%;background:#B5D4F4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#0C447C;flex-shrink:0"></div>
           <div>
             <div style="font-size:13px;font-weight:500;color:#0C447C">本次付款人：<span id="payer-name"></span></div>
             <div style="font-size:12px;color:#185FA5;margin-top:1px">訂單結束後，請將餐費交給 <span id="payer-name2"></span></div>
+          </div>
+        </div>
+        <div class="hint-box" id="order-hint-box" style="display:none">
+          <span style="font-size:16px">📝</span>
+          <div>
+            <div style="font-size:12px;font-weight:500;color:#856404;margin-bottom:2px">點餐提醒</div>
+            <div style="font-size:13px;color:#856404" id="order-hint-text"></div>
           </div>
         </div>
         <div class="grid2">
@@ -516,11 +579,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="ns-name" placeholder="例：鮮茶道" style="max-width:300px"></div>
       <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="ns-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
       <div class="input-group"><label class="lbl">備注</label><input class="inp" id="ns-note" placeholder="例：需提前預訂" style="max-width:300px"></div>
+      <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔" style="max-width:400px"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
       <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" style="margin-top:4px" onclick="addNewStoreRow()">+ 新增品項</button></div>
       <div style="display:flex;gap:8px;margin-top:.5rem">
         <button onclick="saveNewStore()" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存店家</button>
         <button class="btn-sm" onclick="showNewStore(false)">取消</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 編輯店家 Modal -->
+<div class="modal-overlay" id="edit-store-modal" onclick="if(event.target===this)closeStoreEdit()">
+  <div class="modal">
+    <div class="modal-title">編輯店家</div>
+    <input type="hidden" id="edit-store-id">
+    <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="edit-store-name"></div>
+    <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="edit-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
+    <div class="input-group"><label class="lbl">備注</label><input class="inp" id="edit-note" placeholder="例：需提前預訂"></div>
+    <div class="input-group">
+      <label class="lbl">點餐提醒</label>
+      <input class="inp" id="edit-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔">
+      <div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div>
+    </div>
+    <div class="input-group">
+      <label class="lbl">菜單品項</label>
+      <div id="edit-menu-items"></div>
+      <button class="btn-sm" style="margin-top:4px" onclick="addEditMenuRow()">+ 新增品項</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:.5rem">
+      <button onclick="saveStoreEdit()" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
+      <button class="btn-sm" onclick="closeStoreEdit()">取消</button>
     </div>
   </div>
 </div>
