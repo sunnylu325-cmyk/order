@@ -6,7 +6,7 @@
 <title>訂餐系統</title>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
-import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, arrayUnion, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, query, orderBy, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
 
 const app = initializeApp({
   apiKey: "AIzaSyA_tFbY1Cshh-u2qum2fg3fWijfHtYwBE0",
@@ -22,6 +22,34 @@ let currentOrder = null;
 let unsub = null;
 
 function $(id){ return document.getElementById(id); }
+
+// 記住目前訂單 ID 和我的名字
+function saveLocal(key, val){ localStorage.setItem(key, val); }
+function loadLocal(key){ return localStorage.getItem(key); }
+
+async function init(){
+  document.getElementById('today-date').textContent = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  document.getElementById('new-deadline').value = new Date().toISOString().slice(0,16);
+
+  // 還原上次的名字
+  const savedName = loadLocal('myName');
+  if(savedName) $('my-name').value = savedName;
+
+  // 還原上次的訂單
+  const savedOrderId = loadLocal('currentOrderId');
+  if(savedOrderId){
+    try {
+      const snap = await getDoc(doc(db,'orders',savedOrderId));
+      if(snap.exists() && snap.data().status === 'open'){
+        currentOrder = { id: snap.id, ...snap.data() };
+        showSection('order');
+        renderOrder();
+        subscribeOrder();
+      }
+    } catch(e) {}
+  }
+  loadStoreButtons();
+}
 
 function showTab(tab){
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -80,7 +108,6 @@ async function createOrder(){
   $('create-btn').textContent = '建立中...';
   $('create-btn').disabled = true;
 
-  // 找看看有沒有對應的店家提醒
   const storeSnap = await getDocs(collection(db, 'stores'));
   let orderHint = '';
   storeSnap.docs.forEach(d => {
@@ -93,8 +120,10 @@ async function createOrder(){
     createdAt: new Date().toISOString(), entries: []
   });
   currentOrder = { id: ref.id, storeName, deadline, payer, menuItems, orderHint, status: 'open', entries: [] };
+  saveLocal('currentOrderId', ref.id);
   $('create-btn').textContent = '建立訂單';
   $('create-btn').disabled = false;
+  showTab('today');
   showSection('order');
   renderOrder();
   subscribeOrder();
@@ -120,7 +149,6 @@ function renderOrder(){
   $('payer-name').textContent = currentOrder.payer;
   $('payer-name2').textContent = currentOrder.payer;
 
-  // 點餐提醒
   const hintBox = $('order-hint-box');
   if(currentOrder.orderHint){
     hintBox.style.display = 'flex';
@@ -149,15 +177,34 @@ function renderOrder(){
   if(currentOrder.entries.length === 0){
     entries.innerHTML = '<div style="color:#bbb;font-size:13px;padding:.5rem 0">還沒有人訂餐</div>';
   } else {
-    currentOrder.entries.forEach((e) => {
+    currentOrder.entries.forEach((e,i) => {
       entries.innerHTML += `<div class="person-row">
         <div class="av">${e.name[0]}</div>
         <div style="flex:1">
           <div class="name-text">${e.name}</div>
           <div class="sub-text">${e.items.map(it=>`${it.name} x${it.qty}`).join('、')} → $${e.total}${e.note?' ・'+e.note:''}</div>
         </div>
-        <span class="badge ${e.paid?'b-ok':'b-warn'}">${e.paid?'已付':'未付'}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="badge ${e.paid?'b-ok':'b-warn'}">${e.paid?'已付':'未付'}</span>
+          <button class="btn-sm" style="font-size:11px;padding:3px 7px;color:#dc2626;border-color:#fca5a5" onclick="deleteEntry(${i})">刪除</button>
+        </div>
       </div>`;
+    });
+  }
+
+  // 還原我的訂單狀態
+  const myName = $('my-name').value.trim();
+  const myEntry = myName ? currentOrder.entries.find(e => e.name === myName) : null;
+  if(myEntry){
+    $('submit-btn').textContent = '更新訂單';
+    $('submit-btn').disabled = false;
+    $('my-note').value = myEntry.note || '';
+    // 還原數量
+    myEntry.items.forEach(it => {
+      myQty[it.name] = it.qty;
+      const key = it.name.replace(/[^a-zA-Z0-9]/g,'_');
+      const el = document.getElementById('q-'+key);
+      if(el) el.textContent = it.qty;
     });
   }
   updateMyTotal();
@@ -196,17 +243,82 @@ function updateMyTotal(){
 async function submitOrder(){
   const name = $('my-name').value.trim();
   if(!name) return alert('請輸入名字');
+  saveLocal('myName', name);
   const items = Object.entries(myQty).filter(([,v])=>v>0).map(([n,v])=>{
     const item = currentOrder.menuItems.find(m=>m.name===n);
     return { name:n, qty:v, price:item.price };
   });
   if(items.length===0) return alert('請選擇品項');
   const total = items.reduce((s,it)=>s+it.price*it.qty,0);
+
+  // 如果已有訂單就更新，否則新增
+  const existingIndex = currentOrder.entries.findIndex(e => e.name === name);
   const entry = { name, items, note:$('my-note').value, total, paid:false, createdAt:new Date().toISOString() };
-  await updateDoc(doc(db,'orders',currentOrder.id),{ entries: arrayUnion(entry) });
+  let updatedEntries;
+  if(existingIndex >= 0){
+    updatedEntries = [...currentOrder.entries];
+    updatedEntries[existingIndex] = entry;
+  } else {
+    updatedEntries = [...currentOrder.entries, entry];
+  }
+  await updateDoc(doc(db,'orders',currentOrder.id),{ entries: updatedEntries });
   $('submit-btn').textContent = '已送出！';
-  $('submit-btn').disabled = true;
-  Object.keys(myQty).forEach(k=>myQty[k]=0);
+  setTimeout(()=>{ $('submit-btn').textContent = '更新訂單'; }, 2000);
+}
+
+async function deleteEntry(index){
+  if(!confirm('確定要刪除這筆訂單？')) return;
+  const updatedEntries = currentOrder.entries.filter((_,i) => i !== index);
+  await updateDoc(doc(db,'orders',currentOrder.id),{ entries: updatedEntries });
+}
+
+async function closeOrder(){
+  if(!currentOrder) return;
+  if(!confirm('確定關閉訂單？關閉後將無法新增或修改訂餐。')) return;
+  await updateDoc(doc(db,'orders',currentOrder.id),{ status: 'closed' });
+  saveLocal('currentOrderId', '');
+  currentOrder = null;
+  if(unsub) unsub();
+  $('no-order').style.display='block';
+  $('order-content').style.display='none';
+}
+
+function openDeleteModal(){
+  if(!currentOrder) return;
+  $('delete-confirm-input').value = '';
+  $('delete-payer-input').value = '';
+  $('delete-error').textContent = '';
+  $('delete-order-modal').style.display = 'flex';
+  $('delete-order-name').textContent = currentOrder.storeName;
+  $('delete-order-payer').textContent = currentOrder.payer;
+}
+
+function closeDeleteModal(){
+  $('delete-order-modal').style.display = 'none';
+}
+
+async function confirmDeleteOrder(){
+  const confirmText = $('delete-confirm-input').value.trim();
+  const payerInput = $('delete-payer-input').value.trim();
+  const errorEl = $('delete-error');
+
+  if(payerInput !== currentOrder.payer){
+    errorEl.textContent = '付款人姓名不正確';
+    return;
+  }
+  if(confirmText !== '確認刪除'){
+    errorEl.textContent = '請輸入「確認刪除」四個字';
+    return;
+  }
+
+  const { deleteDoc } = await import('https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js');
+  await deleteDoc(doc(db,'orders',currentOrder.id));
+  saveLocal('currentOrderId', '');
+  currentOrder = null;
+  if(unsub) unsub();
+  closeDeleteModal();
+  $('no-order').style.display='block';
+  $('order-content').style.display='none';
 }
 
 async function loadAccounts(){
@@ -245,10 +357,9 @@ async function loadAccounts(){
 }
 
 async function markPaid(orderId, entryIndex){
-  const snap = await getDocs(collection(db,'orders'));
-  const orderDoc = snap.docs.find(d=>d.id===orderId);
-  if(!orderDoc) return;
-  const entries = [...orderDoc.data().entries];
+  const orderSnap = await getDoc(doc(db,'orders',orderId));
+  if(!orderSnap.exists()) return;
+  const entries = [...orderSnap.data().entries];
   entries[entryIndex] = {...entries[entryIndex], paid:true};
   await updateDoc(doc(db,'orders',orderId),{entries});
   loadAccounts();
@@ -261,6 +372,8 @@ async function loadHistory(){
     orders.map(o=>{
       const total = o.entries.reduce((s,e)=>s+e.total,0);
       const allPaid = o.entries.length>0 && o.entries.every(e=>e.paid);
+      const statusLabel = o.status==='open'?'進行中':allPaid?'已完成':'未結清';
+      const statusClass = o.status==='open'?'b-info':allPaid?'b-ok':'b-warn';
       return `<div class="order-hist">
         <div>
           <div style="font-weight:500">${o.storeName}</div>
@@ -268,10 +381,22 @@ async function loadHistory(){
         </div>
         <div style="text-align:right">
           <div style="font-weight:500">$${total}</div>
-          <span class="badge ${o.status==='open'?'b-info':allPaid?'b-ok':'b-warn'}" style="margin-top:4px;display:inline-block">${o.status==='open'?'進行中':allPaid?'已完成':'未結清'}</span>
+          <span class="badge ${statusClass}" style="margin-top:4px;display:inline-block">${statusLabel}</span>
+          ${o.status==='open'?`<div style="margin-top:4px"><button class="btn-sm" style="font-size:11px" onclick="reopenOrder('${o.id}')">切換至此訂單</button></div>`:''}
         </div>
       </div>`;
     }).join('');
+}
+
+async function reopenOrder(id){
+  const snap = await getDoc(doc(db,'orders',id));
+  if(!snap.exists()) return;
+  currentOrder = { id: snap.id, ...snap.data() };
+  saveLocal('currentOrderId', id);
+  subscribeOrder();
+  showTab('today');
+  showSection('order');
+  renderOrder();
 }
 
 async function loadStores(){
@@ -293,10 +418,9 @@ async function loadStores(){
 }
 
 async function openStoreEdit(id){
-  const snap = await getDocs(collection(db,'stores'));
-  const storeDoc = snap.docs.find(d=>d.id===id);
-  if(!storeDoc) return;
-  const s = storeDoc.data();
+  const snap = await getDoc(doc(db,'stores',id));
+  if(!snap.exists()) return;
+  const s = snap.data();
   $('edit-store-id').value = id;
   $('edit-store-name').value = s.name;
   $('edit-threshold').value = s.threshold || '';
@@ -337,11 +461,8 @@ async function saveStoreEdit(){
   });
   if(menuItems.length===0) return alert('請至少新增一個品項');
   await updateDoc(doc(db,'stores',id),{
-    name,
-    threshold: Number($('edit-threshold').value)||null,
-    note: $('edit-note').value,
-    orderHint: $('edit-order-hint').value,
-    menuItems
+    name, threshold: Number($('edit-threshold').value)||null,
+    note: $('edit-note').value, orderHint: $('edit-order-hint').value, menuItems
   });
   closeStoreEdit();
   loadStores();
@@ -372,9 +493,7 @@ async function saveNewStore(){
   if(menuItems.length===0) return alert('請至少新增一個品項');
   await addDoc(collection(db,'stores'),{
     name, threshold: Number($('ns-threshold').value)||null,
-    note: $('ns-note').value,
-    orderHint: $('ns-order-hint').value,
-    menuItems
+    note: $('ns-note').value, orderHint: $('ns-order-hint').value, menuItems
   });
   $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value=''; $('ns-order-hint').value='';
   $('new-store-items').innerHTML='';
@@ -389,6 +508,12 @@ window.createOrder = createOrder;
 window.chg = chg;
 window.updateMyTotal = updateMyTotal;
 window.submitOrder = submitOrder;
+window.deleteEntry = deleteEntry;
+window.closeOrder = closeOrder;
+window.openDeleteModal = openDeleteModal;
+window.closeDeleteModal = closeDeleteModal;
+window.confirmDeleteOrder = confirmDeleteOrder;
+window.reopenOrder = reopenOrder;
 window.markPaid = markPaid;
 window.openStoreEdit = openStoreEdit;
 window.closeStoreEdit = closeStoreEdit;
@@ -398,11 +523,7 @@ window.showNewStore = showNewStore;
 window.addNewStoreRow = addNewStoreRow;
 window.saveNewStore = saveNewStore;
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadStoreButtons();
-  document.getElementById('today-date').textContent = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
-  document.getElementById('new-deadline').value = new Date().toISOString().slice(0,16);
-});
+document.addEventListener('DOMContentLoaded', init);
 </script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -461,6 +582,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:100;align-items:center;justify-content:center;padding:1rem}
 .modal{background:#fff;border-radius:16px;padding:1.5rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
 .modal-title{font-size:16px;font-weight:500;margin-bottom:1.25rem}
+.close-order-btn{padding:6px 12px;border:1px solid #fca5a5;border-radius:8px;background:none;font-size:13px;cursor:pointer;color:#dc2626}
+.close-order-btn:hover{background:#fff1f2}
 @media(max-width:600px){.grid2{grid-template-columns:1fr}.stats{flex-wrap:wrap}}
 </style>
 </head>
@@ -514,8 +637,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       </div>
       <div id="order-content" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-          <span style="font-size:16px;font-weight:500" id="order-title"></span>
-          <span style="font-size:13px;color:#f59e0b" id="order-deadline"></span>
+          <div>
+            <span style="font-size:16px;font-weight:500" id="order-title"></span>
+            <span style="font-size:13px;color:#f59e0b;margin-left:10px" id="order-deadline"></span>
+          </div>
+          <button class="close-order-btn" onclick="closeOrder()">關閉訂單</button>
+          <button class="close-order-btn" style="border-color:#fca5a5;color:#dc2626" onclick="openDeleteModal()">刪除訂單</button>
         </div>
         <div class="payer-box">
           <div style="width:28px;height:28px;border-radius:50%;background:#B5D4F4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#0C447C;flex-shrink:0"></div>
@@ -525,7 +652,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
           </div>
         </div>
         <div class="hint-box" id="order-hint-box" style="display:none">
-          <span style="font-size:16px">📝</span>
+          <span style="font-size:15px">📝</span>
           <div>
             <div style="font-size:12px;font-weight:500;color:#856404;margin-bottom:2px">點餐提醒</div>
             <div style="font-size:13px;color:#856404" id="order-hint-text"></div>
@@ -550,6 +677,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
               <div class="input-group" style="margin-top:.75rem"><label class="lbl">備注</label><textarea class="inp" id="my-note" rows="2" placeholder="例：不要香菜" style="resize:none"></textarea></div>
               <div class="total-row"><span>小計</span><span id="my-total">$0</span></div>
               <button class="btn-primary" id="submit-btn" disabled onclick="submitOrder()">送出訂單</button>
+              <div style="font-size:12px;color:#aaa;text-align:center;margin-top:8px">送出後仍可修改，直到訂單關閉</div>
             </div>
           </div>
         </div>
@@ -579,7 +707,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="ns-name" placeholder="例：鮮茶道" style="max-width:300px"></div>
       <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="ns-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
       <div class="input-group"><label class="lbl">備注</label><input class="inp" id="ns-note" placeholder="例：需提前預訂" style="max-width:300px"></div>
-      <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔" style="max-width:400px"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
+      <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
       <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" style="margin-top:4px" onclick="addNewStoreRow()">+ 新增品項</button></div>
       <div style="display:flex;gap:8px;margin-top:.5rem">
         <button onclick="saveNewStore()" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存店家</button>
@@ -589,7 +717,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 </div>
 
-<!-- 編輯店家 Modal -->
 <div class="modal-overlay" id="edit-store-modal" onclick="if(event.target===this)closeStoreEdit()">
   <div class="modal">
     <div class="modal-title">編輯店家</div>
@@ -597,16 +724,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="edit-store-name"></div>
     <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="edit-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
     <div class="input-group"><label class="lbl">備注</label><input class="inp" id="edit-note" placeholder="例：需提前預訂"></div>
-    <div class="input-group">
-      <label class="lbl">點餐提醒</label>
-      <input class="inp" id="edit-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔">
-      <div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div>
-    </div>
-    <div class="input-group">
-      <label class="lbl">菜單品項</label>
-      <div id="edit-menu-items"></div>
-      <button class="btn-sm" style="margin-top:4px" onclick="addEditMenuRow()">+ 新增品項</button>
-    </div>
+    <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="edit-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
+    <div class="input-group"><label class="lbl">菜單品項</label><div id="edit-menu-items"></div><button class="btn-sm" style="margin-top:4px" onclick="addEditMenuRow()">+ 新增品項</button></div>
     <div style="display:flex;gap:8px;margin-top:.5rem">
       <button onclick="saveStoreEdit()" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
       <button class="btn-sm" onclick="closeStoreEdit()">取消</button>
@@ -615,3 +734,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 </div>
 </body>
 </html>
+
+<!-- 刪除訂單 Modal -->
+<div class="modal-overlay" id="delete-order-modal" style="display:none" onclick="if(event.target===this)closeDeleteModal()">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title" style="color:#dc2626">刪除訂單</div>
+    <div style="background:#fff1f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:1.25rem;font-size:13px;color:#dc2626">
+      即將刪除「<strong id="delete-order-name"></strong>」的訂單，此操作無法復原。
+    </div>
+    <div class="input-group">
+      <label class="lbl">請輸入付款人姓名（<span id="delete-order-payer" style="color:#1a1a1a;font-weight:500"></span>）確認身份</label>
+      <input class="inp" id="delete-payer-input" placeholder="輸入付款人姓名">
+    </div>
+    <div class="input-group">
+      <label class="lbl">請輸入「確認刪除」四個字</label>
+      <input class="inp" id="delete-confirm-input" placeholder="確認刪除">
+    </div>
+    <div id="delete-error" style="font-size:13px;color:#dc2626;margin-bottom:.75rem;min-height:18px"></div>
+    <div style="display:flex;gap:8px">
+      <button onclick="confirmDeleteOrder()" style="padding:9px 16px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-size:14px;cursor:pointer">確認刪除</button>
+      <button class="btn-sm" onclick="closeDeleteModal()">取消</button>
+    </div>
+  </div>
+</div>
