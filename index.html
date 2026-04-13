@@ -102,6 +102,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       </div>
       <div class="card"><div class="sec-title">個人總覽</div><div id="people-list"></div></div>
       <div class="card"><div class="sec-title">未結清明細</div><div id="unpaid-list"></div></div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+          <div class="sec-title" style="margin-bottom:0">手動調帳</div>
+          <button class="btn-sm" id="open-adj-btn">+ 新增調帳</button>
+        </div>
+        <div id="adj-list"><div style="color:#bbb;font-size:13px">尚無調帳記錄</div></div>
+      </div>
     </div>
     <div class="tab-page" id="tabp-history">
       <div class="card"><div class="sec-title">訂單記錄</div><div id="history-list"></div></div>
@@ -251,6 +258,38 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 </div>
 
+<!-- 手動調帳 Modal -->
+
+<div class="modal-overlay" id="adj-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">新增調帳</div>
+    <div class="input-group">
+      <label class="lbl">人名</label>
+      <input class="inp" id="adj-name" placeholder="輸入姓名" style="max-width:200px">
+    </div>
+    <div class="input-group">
+      <label class="lbl">金額</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="display:flex;border:1px solid #ddd;border-radius:8px;overflow:hidden">
+          <button id="adj-type-add" style="padding:7px 14px;border:none;background:#1a1a1a;color:#fff;font-size:13px;cursor:pointer">＋ 補收</button>
+          <button id="adj-type-sub" style="padding:7px 14px;border:none;background:none;font-size:13px;cursor:pointer;color:#888">－ 退款</button>
+        </div>
+        <input class="inp" id="adj-amount" type="number" placeholder="金額" min="0" style="width:110px">
+      </div>
+      <div style="font-size:12px;color:#aaa;margin-top:5px">補收：對方還要多付錢（例：加青菜）・退款：對方少付了</div>
+    </div>
+    <div class="input-group">
+      <label class="lbl">說明</label>
+      <input class="inp" id="adj-note" placeholder="例：加青菜 $20">
+    </div>
+    <div id="adj-error" style="font-size:13px;color:#dc2626;margin-bottom:.75rem;min-height:18px"></div>
+    <div style="display:flex;gap:8px">
+      <button id="save-adj-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
+      <button class="btn-sm" id="cancel-adj-btn">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- 刪除訂單 Modal -->
 
 <div class="modal-overlay" id="delete-order-modal">
@@ -341,6 +380,39 @@ function init() {
   $('delete-order-modal').addEventListener('click', e => { if(e.target===$('delete-order-modal')) $('delete-order-modal').style.display='none'; });
   $('close-history-modal-btn').addEventListener('click', ()=>$('history-detail-modal').style.display='none');
   $('history-detail-modal').addEventListener('click', e=>{ if(e.target===$('history-detail-modal')) $('history-detail-modal').style.display='none'; });
+
+  // 手動調帳
+  let adjType='add';
+  $('open-adj-btn').addEventListener('click',()=>{
+    $('adj-name').value=''; $('adj-amount').value=''; $('adj-note').value=''; $('adj-error').textContent='';
+    adjType='add';
+    $('adj-type-add').style.background='#1a1a1a'; $('adj-type-add').style.color='#fff';
+    $('adj-type-sub').style.background=''; $('adj-type-sub').style.color='#888';
+    $('adj-modal').style.display='flex';
+  });
+  $('adj-type-add').addEventListener('click',()=>{
+    adjType='add';
+    $('adj-type-add').style.background='#1a1a1a'; $('adj-type-add').style.color='#fff';
+    $('adj-type-sub').style.background=''; $('adj-type-sub').style.color='#888';
+  });
+  $('adj-type-sub').addEventListener('click',()=>{
+    adjType='sub';
+    $('adj-type-sub').style.background='#1a1a1a'; $('adj-type-sub').style.color='#fff';
+    $('adj-type-add').style.background=''; $('adj-type-add').style.color='#888';
+  });
+  $('cancel-adj-btn').addEventListener('click',()=>$('adj-modal').style.display='none');
+  $('adj-modal').addEventListener('click',e=>{ if(e.target===$('adj-modal')) $('adj-modal').style.display='none'; });
+  $('save-adj-btn').addEventListener('click',async()=>{
+    const name=$('adj-name').value.trim();
+    const amount=Number($('adj-amount').value);
+    const note=$('adj-note').value.trim();
+    if(!name){ $('adj-error').textContent='請輸入人名'; return; }
+    if(!amount||amount<=0){ $('adj-error').textContent='請輸入正確金額'; return; }
+    const finalAmount=adjType==='add'?amount:-amount;
+    await addDoc(collection(db,'adjustments'),{name,amount:finalAmount,note,createdAt:new Date().toISOString()});
+    $('adj-modal').style.display='none';
+    loadAccounts();
+  });
 
   showPage('list');
   loadTodayOrders();
@@ -666,23 +738,59 @@ async function confirmDeleteOrder() {
 
 // ── 帳務 ──
 async function loadAccounts() {
-  const snap=await getDocs(collection(db,'orders'));
-  const orders=snap.docs.map(d=>({id:d.id,...d.data()}));
+  const [orderSnap, adjSnap] = await Promise.all([
+    getDocs(collection(db,'orders')),
+    getDocs(query(collection(db,'adjustments'), orderBy('createdAt','desc')))
+  ]);
+  const orders=orderSnap.docs.map(d=>({id:d.id,...d.data()}));
+  const adjs=adjSnap.docs.map(d=>({id:d.id,...d.data()}));
+
   const allEntries=orders.flatMap(o=>o.entries.map((e,i)=>({...e,orderId:o.id,entryIndex:i,displayTitle:o.orderTitle||o.storeName,storeName:o.storeName,payer:o.payer,date:o.createdAt?.slice(0,10)})));
   const people={};
   allEntries.forEach(e=>{ if(!people[e.name]) people[e.name]={total:0,unpaid:0}; people[e.name].total+=e.total; if(!e.paid) people[e.name].unpaid+=e.total; });
+  // 計入調帳
+  adjs.forEach(a=>{ if(!people[a.name]) people[a.name]={total:0,unpaid:0}; if(a.amount>0){ people[a.name].total+=a.amount; people[a.name].unpaid+=a.amount; } else { people[a.name].unpaid+=a.amount; } });
+
   $('stat-spent').textContent='$'+Object.values(people).reduce((s,p)=>s+p.total,0);
-  $('stat-unpaid').textContent='$'+Object.values(people).reduce((s,p)=>s+p.unpaid,0);
+  $('stat-unpaid').textContent='$'+Object.values(people).reduce((s,p)=>s+Math.max(0,p.unpaid),0);
   $('stat-orders').textContent=orders.length;
   $('people-list').innerHTML=Object.entries(people).map(([name,p])=>
-    `<div class="person-row"><div class="av">${name[0]}</div><div style="flex:1"><div class="name-text">${name}</div><div class="sub-text">累積 $${p.total}・未付 $${p.unpaid}</div></div>${p.unpaid===0?'<span class="badge b-ok">結清</span>':`<span class="tag-debt">欠款 $${p.unpaid}</span>`}</div>`
+    `<div class="person-row"><div class="av">${name[0]}</div><div style="flex:1"><div class="name-text">${name}</div><div class="sub-text">累積 $${p.total}・未付 $${Math.max(0,p.unpaid)}</div></div>${p.unpaid<=0?'<span class="badge b-ok">結清</span>':`<span class="tag-debt">欠款 $${p.unpaid}</span>`}</div>`
   ).join('')||'<div style="color:#bbb;font-size:13px">尚無資料</div>';
+
   const unpaid=allEntries.filter(e=>!e.paid);
   const unpaidList=$('unpaid-list');
   unpaidList.innerHTML=unpaid.length===0?'<div style="color:#bbb;font-size:13px">所有人都已結清</div>':
     unpaid.map(e=>`<div class="settle-row"><div><div style="font-size:14px">${e.name} 欠 ${e.payer}</div><div class="sub-text">${e.date} ${e.displayTitle}</div></div><div style="text-align:right"><div style="font-weight:500">$${e.total}</div><button class="btn-sm mark-paid-btn" data-order="${e.orderId}" data-index="${e.entryIndex}" style="margin-top:4px">標記已還</button></div></div>`).join('');
   unpaidList.querySelectorAll('.mark-paid-btn').forEach(btn=>{
     btn.addEventListener('click',()=>markPaid(btn.dataset.order, Number(btn.dataset.index)));
+  });
+
+  // 調帳列表
+  const adjList=$('adj-list');
+  adjList.innerHTML=adjs.length===0?'<div style="color:#bbb;font-size:13px">尚無調帳記錄</div>':
+    adjs.map(a=>`
+      <div class="settle-row">
+        <div>
+          <div style="font-size:14px;display:flex;align-items:center;gap:6px">
+            <span>${a.name}</span>
+            <span style="font-size:12px;padding:2px 7px;border-radius:6px;${a.amount>0?'background:#FCEBEB;color:#791F1F':'background:#EAF3DE;color:#27500A'}">${a.amount>0?'補收':'退款'}</span>
+          </div>
+          <div class="sub-text">${a.note||''}・${a.createdAt?.slice(0,10)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-weight:500;${a.amount>0?'color:#dc2626':'color:#27a354'}">
+            ${a.amount>0?'+':'-'}$${Math.abs(a.amount)}
+          </span>
+          <button class="btn-sm del-adj-btn" data-id="${a.id}" style="font-size:11px;padding:3px 7px;color:#dc2626;border-color:#fca5a5">刪</button>
+        </div>
+      </div>`).join('');
+  adjList.querySelectorAll('.del-adj-btn').forEach(btn=>{
+    btn.addEventListener('click',async()=>{
+      if(!confirm('確定要刪除這筆調帳？')) return;
+      await deleteDoc(doc(db,'adjustments',btn.dataset.id));
+      loadAccounts();
+    });
   });
 }
 
