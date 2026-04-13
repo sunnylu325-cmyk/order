@@ -4,559 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>訂餐系統</title>
-<script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
-import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, where, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
-
-const app = initializeApp({
-  apiKey: "AIzaSyA_tFbY1Cshh-u2qum2fg3fWijfHtYwBE0",
-  authDomain: "order-e395c.firebaseapp.com",
-  projectId: "order-e395c",
-  storageBucket: "order-e395c.firebasestorage.app",
-  messagingSenderId: "77302517511",
-  appId: "1:77302517511:web:2248241cbad0bb999cbfa2"
-});
-const db = getFirestore(app);
-
-let currentOrder = null;
-let unsub = null;
-
-function $(id){ return document.getElementById(id); }
-function saveLocal(k,v){ localStorage.setItem(k,v); }
-function loadLocal(k){ return localStorage.getItem(k)||''; }
-
-// ── 初始化 ──
-async function init(){
-  $('today-date').textContent = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
-  $('new-deadline').value = new Date().toISOString().slice(0,16);
-  const savedName = loadLocal('myName');
-  if(savedName) $('my-name').value = savedName;
-  showPage('list');
-  loadTodayOrders();
-}
-
-// ── 頁面切換 ──
-function showPage(page, order){
-  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
-  if(page === 'order' && order){
-    currentOrder = order;
-    subscribeOrder();
-    renderOrderPage();
-  }
-  if(page === 'list') loadTodayOrders();
-  if(page === 'accounts') loadAccounts();
-  if(page === 'history') loadHistory();
-  if(page === 'stores') loadStores();
-}
-
-function showTab(tab){
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  document.querySelectorAll('.tab-page').forEach(p => p.classList.toggle('active', p.id === 'tabp-' + tab));
-  if(tab === 'today') loadTodayOrders();
-  if(tab === 'accounts') loadAccounts();
-  if(tab === 'history') loadHistory();
-  if(tab === 'stores') loadStores();
-}
-
-// ── 今日訂單列表 ──
-async function loadTodayOrders(){
-  const today = new Date().toISOString().slice(0,10);
-  const snap = await getDocs(query(collection(db,'orders'), orderBy('createdAt','desc')));
-  const orders = snap.docs.map(d=>({id:d.id,...d.data()}))
-    .filter(o => o.status === 'open' && o.createdAt?.slice(0,10) === today);
-
-  const list = $('today-list');
-  if(orders.length === 0){
-    list.innerHTML = `<div style="text-align:center;padding:3rem;color:#888">
-      <div style="font-size:16px;margin-bottom:8px">今天還沒有訂單</div>
-      <div style="font-size:13px">點右上角「+ 新增訂單」發起</div>
-    </div>`;
-    return;
-  }
-  list.innerHTML = orders.map(o => {
-    const total = o.entries.reduce((s,e)=>s+e.total,0);
-    const deadline = o.deadline ? o.deadline.replace('T',' ') : '';
-    return `<div class="order-card" onclick="enterOrder('${o.id}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div>
-          <div style="font-size:16px;font-weight:500">${o.storeName}</div>
-          <div style="font-size:12px;color:#888;margin-top:4px">發起人：${o.payer}・截止 ${deadline}</div>
-          <div style="margin-top:5px"><span style="background:#f0f0f0;border-radius:20px;padding:2px 10px;font-size:12px;color:#555">${o.mealType||'午餐'}</span></div>
-        </div>
-        <div style="text-align:right;flex-shrink:0;margin-left:12px">
-          <span class="badge b-info">訂購中</span>
-          <div style="font-size:12px;color:#888;margin-top:4px">${o.entries.length} 人已訂</div>
-        </div>
-      </div>
-      ${o.entries.length > 0 ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-        ${o.entries.map(e=>`<span style="background:#f5f5f5;border-radius:20px;padding:3px 10px;font-size:12px;color:#555">${e.name}</span>`).join('')}
-      </div>` : ''}
-      <div style="margin-top:10px;font-size:13px;color:#aaa;display:flex;justify-content:space-between">
-        <span>${o.menuItems.map(m=>m.name).slice(0,3).join('、')}${o.menuItems.length>3?'…':''}</span>
-        <span style="color:#1a1a1a;font-weight:500">共 $${total}</span>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-async function enterOrder(id){
-  const snap = await getDoc(doc(db,'orders',id));
-  if(!snap.exists()) return;
-  const order = { id: snap.id, ...snap.data() };
-  showPage('order', order);
-}
-
-// ── 新增訂單 ──
-async function loadStoreButtons(){
-  const snap = await getDocs(collection(db, 'stores'));
-  const wrap = $('store-btns');
-  wrap.innerHTML = '';
-  snap.docs.forEach(d => {
-    const s = d.data();
-    const btn = document.createElement('button');
-    btn.className = 'btn-sm';
-    btn.textContent = s.name;
-    btn.onclick = () => loadStoreToForm(s);
-    wrap.appendChild(btn);
-  });
-}
-
-function loadStoreToForm(s){
-  $('new-store-name').value = s.name;
-  const container = $('new-menu-items');
-  container.innerHTML = '';
-  s.menuItems.forEach(m => addMenuRow(m.name, m.price));
-}
-
-function addMenuRow(name='', price=''){
-  const div = document.createElement('div');
-  div.className = 'menu-row';
-  div.innerHTML = `<input class="inp" placeholder="品項名稱" value="${name}"><input class="inp price-inp" placeholder="價格" type="number" value="${price}"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
-  $('new-menu-items').appendChild(div);
-}
-
-async function createOrder(){
-  const storeName = $('new-store-name').value.trim();
-  const mealType = document.querySelector('input[name="meal-type"]:checked')?.value || '午餐';
-  const deadline = $('new-deadline').value;
-  const payer = $('new-payer').value.trim();
-  const mealType = $('new-meal-type').value || '午餐';
-  const orderDate = new Date().toLocaleDateString('zh-TW',{month:'long',day:'numeric'});
-  const rows = document.querySelectorAll('#new-menu-items .menu-row');
-  const menuItems = [];
-  rows.forEach(r => {
-    const name = r.querySelector('input').value.trim();
-    const price = Number(r.querySelector('.price-inp').value);
-    if(name && price) menuItems.push({ name, price });
-  });
-  if(!storeName || !payer) return alert('請填寫店家名稱和付款人');
-  if(menuItems.length === 0) return alert('請至少新增一個菜單品項');
-  $('create-btn').textContent = '建立中...';
-  $('create-btn').disabled = true;
-
-  const storeSnap = await getDocs(collection(db,'stores'));
-  let orderHint = '';
-  storeSnap.docs.forEach(d => {
-    const s = d.data();
-    if(s.name === storeName && s.orderHint) orderHint = s.orderHint;
-  });
-
-  const ref = await addDoc(collection(db,'orders'), {
-    storeName, mealType, deadline, payer, menuItems, orderHint,
-    status: 'open', createdAt: new Date().toISOString(), entries: []
-  });
-  $('create-btn').textContent = '建立訂單';
-  $('create-btn').disabled = false;
-
-  // 清空表單
-  $('new-store-name').value=''; $('new-payer').value=''; $('new-menu-items').innerHTML='';
-
-  const order = { id: ref.id, storeName, mealType, deadline, payer, menuItems, orderHint, status:'open', entries:[] };
-  showTab('today');
-  showPage('order', order);
-}
-
-// ── 點餐頁面 ──
-function subscribeOrder(){
-  if(unsub) unsub();
-  if(!currentOrder) return;
-  unsub = onSnapshot(doc(db,'orders',currentOrder.id), snap => {
-    if(snap.exists()){
-      currentOrder = { id: snap.id, ...snap.data() };
-      renderOrderPage();
-    }
-  });
-}
-
-const myQty = {};
-
-function renderOrderPage(){
-  if(!currentOrder) return;
-  const mealLabel = currentOrder.mealType ? ' ・' + currentOrder.mealType : '';
-  $('order-store-name').textContent = currentOrder.storeName + mealLabel;
-  $('order-deadline').textContent = '截止：' + (currentOrder.deadline||'').replace('T',' ');
-  $('payer-name').textContent = currentOrder.payer;
-  $('payer-name2').textContent = currentOrder.payer;
-
-  const hintBox = $('order-hint-box');
-  if(currentOrder.orderHint){
-    hintBox.style.display='flex';
-    $('order-hint-text').textContent = currentOrder.orderHint;
-  } else {
-    hintBox.style.display='none';
-  }
-
-  // 菜單
-  const menu = $('menu-list');
-  menu.innerHTML = '';
-  currentOrder.menuItems.forEach(item => {
-    const key = item.name.replace(/[^a-zA-Z0-9]/g,'_');
-    const div = document.createElement('div');
-    div.className = 'menu-item';
-    div.innerHTML = `<span>${item.name}</span>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="price-label">$${item.price}</span>
-        <button class="qb" onclick="chg('${item.name}',-1)">−</button>
-        <span id="q-${key}">${myQty[item.name]||0}</span>
-        <button class="qb" onclick="chg('${item.name}',1)">+</button>
-      </div>`;
-    menu.appendChild(div);
-  });
-
-  // 已訂列表
-  const entries = $('entries-list');
-  entries.innerHTML = '';
-  if(currentOrder.entries.length === 0){
-    entries.innerHTML = '<div style="color:#bbb;font-size:13px;padding:.5rem 0">還沒有人訂餐</div>';
-  } else {
-    currentOrder.entries.forEach((e,i) => {
-      const div = document.createElement('div');
-      div.className = 'person-row';
-      div.innerHTML = `<div class="av">${e.name[0]}</div>
-        <div style="flex:1">
-          <div class="name-text">${e.name}</div>
-          <div class="sub-text">${e.items.map(it=>`${it.name} x${it.qty}`).join('、')} → $${e.total}${e.note?' ・'+e.note:''}</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span class="badge ${e.paid?'b-ok':'b-warn'}">${e.paid?'已付':'未付'}</span>
-          <button class="btn-sm" style="font-size:11px;padding:3px 7px;color:#dc2626;border-color:#fca5a5" onclick="deleteEntry(${i})">刪</button>
-        </div>`;
-      entries.appendChild(div);
-    });
-  }
-
-  // 訂單彙整
-  const summaryEl = $('order-summary-list');
-  if(currentOrder.entries.length === 0){
-    summaryEl.innerHTML = '<div style="color:#bbb;font-size:13px;padding:.5rem 0">尚無訂單</div>';
-  } else {
-    const summaryMap = {};
-    currentOrder.entries.forEach(e => {
-      e.items.forEach(it => {
-        const key = e.note ? it.name + '__' + e.note : it.name;
-        if(!summaryMap[key]) summaryMap[key] = { name: it.name, note: e.note||'', qty: 0, price: it.price };
-        summaryMap[key].qty += it.qty;
-      });
-    });
-    const totalItems = Object.values(summaryMap).reduce((s,v)=>s+v.qty,0);
-    const grandTotal = currentOrder.entries.reduce((s,e)=>s+e.total,0);
-    summaryEl.innerHTML = Object.entries(summaryMap).map(([key,v])=>
-      '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5">' +
-        '<div><span style="font-size:14px;font-weight:500">' + v.name + '</span>' +
-        (v.note ? '<span style="font-size:12px;color:#f59e0b;margin-left:6px">備注：' + v.note + '</span>' : '') +
-        '</div><div style="display:flex;align-items:center;gap:12px">' +
-        '<span style="font-size:13px;color:#888">x ' + v.qty + '</span>' +
-        '<span style="font-size:14px;font-weight:500">$' + (v.price*v.qty) + '</span></div></div>'
-    ).join('') +
-    '<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;border-top:1px solid #eee;margin-top:4px">' +
-    '<span>共 ' + totalItems + ' 份</span><span>$' + grandTotal + '</span></div>';
-  }
-
-  // 還原我的名字選項
-  const myName = $('my-name').value.trim();
-  if(myName){
-    const myEntry = currentOrder.entries.find(e=>e.name===myName);
-    if(myEntry){
-      $('submit-btn').textContent = '更新訂單';
-      $('my-note').value = myEntry.note||'';
-      myEntry.items.forEach(it=>{
-        myQty[it.name]=it.qty;
-        const key=it.name.replace(/[^a-zA-Z0-9]/g,'_');
-        const el=document.getElementById('q-'+key);
-        if(el) el.textContent=it.qty;
-      });
-    }
-  }
-  updateMyTotal();
-}
-
-function chg(name, delta){
-  myQty[name] = Math.max(0,(myQty[name]||0)+delta);
-  const key = name.replace(/[^a-zA-Z0-9]/g,'_');
-  const el = document.getElementById('q-'+key);
-  if(el) el.textContent = myQty[name];
-  updateMyTotal();
-}
-
-function updateMyTotal(){
-  if(!currentOrder) return;
-  const items = Object.entries(myQty).filter(([,v])=>v>0);
-  const total = items.reduce((s,[n,v])=>{
-    const item = currentOrder.menuItems.find(m=>m.name===n);
-    return s+(item?item.price*v:0);
-  },0);
-  $('my-total').textContent='$'+total;
-  const summary=$('my-summary');
-  summary.innerHTML = items.length===0
-    ? '<span style="color:#bbb">尚未選擇品項</span>'
-    : items.map(([n,v])=>{
-        const item=currentOrder.menuItems.find(m=>m.name===n);
-        return `<div class="summary-row"><span>${n} x${v}</span><span>$${item?item.price*v:0}</span></div>`;
-      }).join('');
-  const name=$('my-name').value.trim();
-  $('submit-btn').disabled=items.length===0||!name;
-}
-
-async function submitOrder(){
-  const name=$('my-name').value.trim();
-  if(!name) return alert('請輸入名字');
-  saveLocal('myName',name);
-  const items=Object.entries(myQty).filter(([,v])=>v>0).map(([n,v])=>{
-    const item=currentOrder.menuItems.find(m=>m.name===n);
-    return {name:n,qty:v,price:item.price};
-  });
-  if(items.length===0) return alert('請選擇品項');
-  const total=items.reduce((s,it)=>s+it.price*it.qty,0);
-  const entry={name,items,note:$('my-note').value,total,paid:false,createdAt:new Date().toISOString()};
-  const existingIndex=currentOrder.entries.findIndex(e=>e.name===name);
-  let updatedEntries;
-  if(existingIndex>=0){
-    updatedEntries=[...currentOrder.entries];
-    updatedEntries[existingIndex]=entry;
-  } else {
-    updatedEntries=[...currentOrder.entries,entry];
-  }
-  await updateDoc(doc(db,'orders',currentOrder.id),{entries:updatedEntries});
-  $('submit-btn').textContent='已送出！';
-  setTimeout(()=>{ $('submit-btn').textContent='更新訂單'; },2000);
-}
-
-async function deleteEntry(index){
-  if(!confirm('確定要刪除這筆訂單？')) return;
-  const updatedEntries=currentOrder.entries.filter((_,i)=>i!==index);
-  await updateDoc(doc(db,'orders',currentOrder.id),{entries:updatedEntries});
-}
-
-async function closeOrder(){
-  if(!currentOrder) return;
-  if(!confirm('確定關閉訂單？關閉後將無法新增或修改訂餐。')) return;
-  await updateDoc(doc(db,'orders',currentOrder.id),{status:'closed'});
-  if(unsub) unsub();
-  currentOrder=null;
-  showPage('list');
-}
-
-function openDeleteModal(){
-  if(!currentOrder) return;
-  $('delete-confirm-input').value='';
-  $('delete-payer-input').value='';
-  $('delete-error').textContent='';
-  $('delete-order-name').textContent=currentOrder.storeName;
-  $('delete-order-payer').textContent=currentOrder.payer;
-  $('delete-order-modal').style.display='flex';
-}
-
-function closeDeleteModal(){
-  $('delete-order-modal').style.display='none';
-}
-
-async function confirmDeleteOrder(){
-  const payerInput=$('delete-payer-input').value.trim();
-  const confirmText=$('delete-confirm-input').value.trim();
-  const errorEl=$('delete-error');
-  if(payerInput!==currentOrder.payer){ errorEl.textContent='付款人姓名不正確'; return; }
-  if(confirmText!=='確認刪除'){ errorEl.textContent='請輸入「確認刪除」四個字'; return; }
-  await deleteDoc(doc(db,'orders',currentOrder.id));
-  if(unsub) unsub();
-  currentOrder=null;
-  closeDeleteModal();
-  showPage('list');
-}
-
-// ── 帳務 ──
-async function loadAccounts(){
-  const snap=await getDocs(collection(db,'orders'));
-  const orders=snap.docs.map(d=>({id:d.id,...d.data()}));
-  const allEntries=orders.flatMap(o=>o.entries.map((e,i)=>({...e,orderId:o.id,entryIndex:i,storeName:o.storeName,payer:o.payer,date:o.createdAt?.slice(0,10)})));
-  const people={};
-  allEntries.forEach(e=>{
-    if(!people[e.name]) people[e.name]={total:0,unpaid:0};
-    people[e.name].total+=e.total;
-    if(!e.paid) people[e.name].unpaid+=e.total;
-  });
-  const totalSpent=Object.values(people).reduce((s,p)=>s+p.total,0);
-  const totalUnpaid=Object.values(people).reduce((s,p)=>s+p.unpaid,0);
-  $('stat-spent').textContent='$'+totalSpent;
-  $('stat-unpaid').textContent='$'+totalUnpaid;
-  $('stat-orders').textContent=orders.length;
-  $('people-list').innerHTML=Object.entries(people).map(([name,p])=>`
-    <div class="person-row">
-      <div class="av">${name[0]}</div>
-      <div style="flex:1"><div class="name-text">${name}</div><div class="sub-text">累積 $${p.total}・未付 $${p.unpaid}</div></div>
-      ${p.unpaid===0?'<span class="badge b-ok">結清</span>':`<span class="tag-debt">欠款 $${p.unpaid}</span>`}
-    </div>`).join('')||'<div style="color:#bbb;font-size:13px">尚無資料</div>';
-  const unpaid=allEntries.filter(e=>!e.paid);
-  $('unpaid-list').innerHTML=unpaid.length===0?'<div style="color:#bbb;font-size:13px">所有人都已結清</div>':
-    unpaid.map(e=>`<div class="settle-row">
-      <div><div style="font-size:14px">${e.name} 欠 ${e.payer}</div><div class="sub-text">${e.date} ${e.storeName}</div></div>
-      <div style="text-align:right"><div style="font-weight:500">$${e.total}</div>
-        <button class="btn-sm" style="margin-top:4px" onclick="markPaid('${e.orderId}',${e.entryIndex})">標記已還</button>
-      </div>
-    </div>`).join('');
-}
-
-async function markPaid(orderId,entryIndex){
-  const snap=await getDoc(doc(db,'orders',orderId));
-  if(!snap.exists()) return;
-  const entries=[...snap.data().entries];
-  entries[entryIndex]={...entries[entryIndex],paid:true};
-  await updateDoc(doc(db,'orders',orderId),{entries});
-  loadAccounts();
-}
-
-// ── 歷史 ──
-async function loadHistory(){
-  const snap=await getDocs(query(collection(db,'orders'),orderBy('createdAt','desc')));
-  const orders=snap.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.status==='closed');
-  $('history-list').innerHTML=orders.length===0?'<div style="color:#bbb;font-size:13px">尚無已結束的訂單</div>':
-    orders.map(o=>{
-      const total=o.entries.reduce((s,e)=>s+e.total,0);
-      const allPaid=o.entries.length>0&&o.entries.every(e=>e.paid);
-      const statusLabel=allPaid?'已完成':'未結清';
-      const statusClass=allPaid?'b-ok':'b-warn';
-      return '<div class="order-hist">' +
-        '<div><div style="font-weight:500">' + o.storeName + '</div>' +
-        '<div class="sub-text">' + (o.createdAt?.slice(0,10)||'') + ' · ' + (o.mealType||'午餐') + ' · ' + o.entries.length + ' 人 · 付款人：' + o.payer + '</div></div>' +
-        '<div style="text-align:right"><div style="font-weight:500">$' + total + '</div>' +
-        '<span class="badge ' + statusClass + '" style="margin-top:4px;display:inline-block">' + statusLabel + '</span></div></div>';
-    }).join('');
-}
-
-// ── 常用店家 ──
-async function loadStores(){
-  const snap=await getDocs(collection(db,'stores'));
-  const stores=snap.docs.map(d=>({id:d.id,...d.data()}));
-  $('stores-list').innerHTML=stores.length===0?'<div style="color:#bbb;font-size:13px;padding-bottom:1rem">尚無店家</div>':
-    stores.map(s=>`<div class="store-item">
-      <div style="display:flex;align-items:flex-start;gap:10px">
-        <div style="flex:1">
-          <div style="font-size:14px;font-weight:500">${s.name}</div>
-          <div class="sub-text" style="margin-top:3px">${s.menuItems.map(m=>`${m.name} $${m.price}`).join('、')}</div>
-          <div style="font-size:12px;margin-top:4px;color:#888">外送門檻：<strong style="color:#1a1a1a">${s.threshold?'$'+s.threshold:'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>
-          ${s.orderHint?`<div style="font-size:12px;margin-top:5px;background:#FFF3CD;color:#856404;padding:4px 8px;border-radius:6px;display:inline-block">點餐提醒：${s.orderHint}</div>`:''}
-        </div>
-        <button class="btn-sm" onclick="openStoreEdit('${s.id}')">編輯</button>
-      </div>
-    </div>`).join('');
-}
-
-async function openStoreEdit(id){
-  const snap=await getDoc(doc(db,'stores',id));
-  if(!snap.exists()) return;
-  const s=snap.data();
-  $('edit-store-id').value=id;
-  $('edit-store-name').value=s.name;
-  $('edit-threshold').value=s.threshold||'';
-  $('edit-note').value=s.note||'';
-  $('edit-order-hint').value=s.orderHint||'';
-  const c=$('edit-menu-items');
-  c.innerHTML='';
-  s.menuItems.forEach(m=>{
-    const div=document.createElement('div');
-    div.className='menu-row';
-    div.innerHTML=`<input class="inp" placeholder="品項名稱" value="${m.name}"><input class="inp price-inp" placeholder="價格" type="number" value="${m.price}"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
-    c.appendChild(div);
-  });
-  $('edit-store-modal').style.display='flex';
-}
-
-function closeStoreEdit(){ $('edit-store-modal').style.display='none'; }
-
-function addEditMenuRow(){
-  const div=document.createElement('div');
-  div.className='menu-row';
-  div.innerHTML=`<input class="inp" placeholder="品項名稱"><input class="inp price-inp" placeholder="價格" type="number"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
-  $('edit-menu-items').appendChild(div);
-}
-
-async function saveStoreEdit(){
-  const id=$('edit-store-id').value;
-  const name=$('edit-store-name').value.trim();
-  if(!name) return alert('請輸入店家名稱');
-  const rows=document.querySelectorAll('#edit-menu-items .menu-row');
-  const menuItems=[];
-  rows.forEach(r=>{
-    const n=r.querySelector('input').value.trim();
-    const p=Number(r.querySelector('.price-inp').value);
-    if(n&&p) menuItems.push({name:n,price:p});
-  });
-  if(menuItems.length===0) return alert('請至少新增一個品項');
-  await updateDoc(doc(db,'stores',id),{name,threshold:Number($('edit-threshold').value)||null,note:$('edit-note').value,orderHint:$('edit-order-hint').value,menuItems});
-  closeStoreEdit();
-  loadStores();
-}
-
-function showNewStore(show){ $('new-store-form').style.display=show?'block':'none'; }
-
-function addNewStoreRow(){
-  const div=document.createElement('div');
-  div.className='menu-row';
-  div.innerHTML=`<input class="inp" placeholder="品項名稱"><input class="inp price-inp" placeholder="價格" type="number"><button class="btn-sm" onclick="this.parentNode.remove()">刪除</button>`;
-  $('new-store-items').appendChild(div);
-}
-
-async function saveNewStore(){
-  const name=$('ns-name').value.trim();
-  if(!name) return alert('請輸入店家名稱');
-  const rows=document.querySelectorAll('#new-store-items .menu-row');
-  const menuItems=[];
-  rows.forEach(r=>{
-    const n=r.querySelector('input').value.trim();
-    const p=Number(r.querySelector('.price-inp').value);
-    if(n&&p) menuItems.push({name:n,price:p});
-  });
-  if(menuItems.length===0) return alert('請至少新增一個品項');
-  await addDoc(collection(db,'stores'),{name,threshold:Number($('ns-threshold').value)||null,note:$('ns-note').value,orderHint:$('ns-order-hint').value,menuItems});
-  $('ns-name').value='';$('ns-threshold').value='';$('ns-note').value='';$('ns-order-hint').value='';
-  $('new-store-items').innerHTML='';
-  showNewStore(false);
-  loadStores();
-}
-
-// ── 新增訂單頁 ──
-function goNewOrder(){
-  showPage('new-order');
-  $('new-deadline').value=new Date().toISOString().slice(0,16);
-  loadStoreButtons();
-}
-
-function selectMealType(btn){
-  document.querySelectorAll('.meal-type-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  $('new-meal-type').value = btn.dataset.val;
-}
-window.selectMealType=selectMealType;
-window.showTab=showTab; window.showPage=showPage; window.enterOrder=enterOrder;
-window.goNewOrder=goNewOrder; window.addMenuRow=addMenuRow; window.createOrder=createOrder;
-window.chg=chg; window.updateMyTotal=updateMyTotal; window.submitOrder=submitOrder;
-window.deleteEntry=deleteEntry; window.closeOrder=closeOrder;
-window.openDeleteModal=openDeleteModal; window.closeDeleteModal=closeDeleteModal; window.confirmDeleteOrder=confirmDeleteOrder;
-window.markPaid=markPaid;
-window.openStoreEdit=openStoreEdit; window.closeStoreEdit=closeStoreEdit; window.addEditMenuRow=addEditMenuRow; window.saveStoreEdit=saveStoreEdit;
-window.showNewStore=showNewStore; window.addNewStoreRow=addNewStoreRow; window.saveNewStore=saveNewStore;
-
-document.addEventListener('DOMContentLoaded', init);
-</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;background:#f5f5f5}
@@ -613,19 +60,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .store-item{padding:12px 0;border-bottom:1px solid #f5f5f5}
 .store-item:last-child{border-bottom:none}
 .menu-row{display:flex;gap:8px;margin-bottom:8px}
-.back-btn{display:flex;align-items:center;gap:8px;margin-bottom:1.25rem}
+.back-btn{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
 .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:100;align-items:center;justify-content:center;padding:1rem}
 .modal{background:#fff;border-radius:16px;padding:1.5rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
 .modal-title{font-size:16px;font-weight:500;margin-bottom:1.25rem}
-.close-order-btn{padding:6px 12px;border:1px solid #ddd;border-radius:8px;background:none;font-size:13px;cursor:pointer}
-.delete-order-btn{padding:6px 12px;border:1px solid #fca5a5;border-radius:8px;background:none;font-size:13px;cursor:pointer;color:#dc2626}
+.meal-tag{background:#f0f0f0;border-radius:20px;padding:2px 10px;font-size:12px;color:#555}
 .meal-type-btn{padding:6px 14px;border:1px solid #ddd;border-radius:20px;background:none;font-size:13px;cursor:pointer;color:#888}
 .meal-type-btn.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
-.meal-type-btn{display:inline-flex;align-items:center;cursor:pointer}
-.meal-type-btn input{display:none}
-.meal-type-btn span{padding:6px 14px;border:1px solid #ddd;border-radius:20px;font-size:13px;transition:all .15s}
-.meal-type-btn input:checked + span{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
-.meal-type-btn:hover span{border-color:#999}
 @media(max-width:600px){.grid2{grid-template-columns:1fr}.stats{flex-wrap:wrap}}
 </style>
 </head>
@@ -636,17 +77,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       <div class="header-title">訂餐系統</div>
       <div class="header-date" id="today-date"></div>
     </div>
-    <button class="btn-sm" onclick="goNewOrder()">+ 新增訂單</button>
+    <button class="btn-sm" id="new-order-btn">+ 新增訂單</button>
   </div>
 
   <div class="tabs">
-    <button class="tab-btn active" data-tab="today" onclick="showTab('today')">今日訂單</button>
-    <button class="tab-btn" data-tab="accounts" onclick="showTab('accounts')">帳務總覽</button>
-    <button class="tab-btn" data-tab="history" onclick="showTab('history')">歷史記錄</button>
-    <button class="tab-btn" data-tab="stores" onclick="showTab('stores')">常用店家</button>
+    <button class="tab-btn active" data-tab="today">今日訂單</button>
+    <button class="tab-btn" data-tab="accounts">帳務總覽</button>
+    <button class="tab-btn" data-tab="history">歷史記錄</button>
+    <button class="tab-btn" data-tab="stores">常用店家</button>
   </div>
 
-  <!-- 今日訂單列表 -->
+  <!-- 主頁面（含tab） -->
   <div class="page active" id="page-list">
     <div class="tab-page active" id="tabp-today">
       <div id="today-list"></div>
@@ -665,17 +106,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     </div>
     <div class="tab-page" id="tabp-stores">
       <div class="card"><div class="sec-title">店家列表</div><div id="stores-list"></div></div>
-      <button class="btn-sm" onclick="showNewStore(true)">+ 新增店家</button>
+      <button class="btn-sm" id="add-store-btn">+ 新增店家</button>
       <div id="new-store-form" style="display:none;margin-top:1rem" class="card">
         <div style="font-size:14px;font-weight:500;margin-bottom:1rem">新增店家</div>
         <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="ns-name" placeholder="例：鮮茶道" style="max-width:300px"></div>
         <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="ns-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
         <div class="input-group"><label class="lbl">備注</label><input class="inp" id="ns-note" placeholder="例：需提前預訂" style="max-width:300px"></div>
         <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
-        <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" style="margin-top:4px" onclick="addNewStoreRow()">+ 新增品項</button></div>
+        <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" id="add-store-item-btn" style="margin-top:4px">+ 新增品項</button></div>
         <div style="display:flex;gap:8px;margin-top:.5rem">
-          <button onclick="saveNewStore()" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存店家</button>
-          <button class="btn-sm" onclick="showNewStore(false)">取消</button>
+          <button id="save-new-store-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存店家</button>
+          <button class="btn-sm" id="cancel-new-store-btn">取消</button>
         </div>
       </div>
     </div>
@@ -684,33 +125,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   <!-- 新增訂單頁 -->
   <div class="page" id="page-new-order">
     <div class="back-btn">
-      <button class="btn-sm" onclick="showPage('list');showTab('today')">← 返回</button>
-      <span style="font-size:16px;font-weight:500">新增訂單</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn-sm" id="back-from-new-btn">← 返回</button>
+        <span style="font-size:16px;font-weight:500">新增訂單</span>
+      </div>
     </div>
     <div class="card">
       <div class="sec-title">店家資訊</div>
       <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="new-store-name" placeholder="例：八方雲集"></div>
       <div class="input-group">
-        <label class="lbl">用餐類型</label>
+        <label class="lbl">用途</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <label class="meal-type-btn"><input type="radio" name="meal-type" id="new-meal-type" value="午餐" checked><span>午餐</span></label>
-          <label class="meal-type-btn"><input type="radio" name="meal-type" value="晚餐"><span>晚餐</span></label>
-          <label class="meal-type-btn"><input type="radio" name="meal-type" value="飲料"><span>飲料</span></label>
-          <label class="meal-type-btn"><input type="radio" name="meal-type" value="下午茶點心"><span>下午茶點心</span></label>
-          <label class="meal-type-btn"><input type="radio" name="meal-type" value="早餐"><span>早餐</span></label>
-        </div>
-      </div>
-      <div class="input-group"><label class="lbl">截止時間</label><input class="inp" id="new-deadline" type="datetime-local" style="width:220px"></div>
-      <div class="input-group"><label class="lbl">用途</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="meal-type-btn active" data-val="午餐" onclick="selectMealType(this)">午餐</button>
-          <button type="button" class="meal-type-btn" data-val="晚餐" onclick="selectMealType(this)">晚餐</button>
-          <button type="button" class="meal-type-btn" data-val="飲料" onclick="selectMealType(this)">飲料</button>
-          <button type="button" class="meal-type-btn" data-val="下午茶／點心" onclick="selectMealType(this)">下午茶／點心</button>
-          <button type="button" class="meal-type-btn" data-val="早餐" onclick="selectMealType(this)">早餐</button>
+          <button type="button" class="meal-type-btn active" data-val="午餐">午餐</button>
+          <button type="button" class="meal-type-btn" data-val="晚餐">晚餐</button>
+          <button type="button" class="meal-type-btn" data-val="飲料">飲料</button>
+          <button type="button" class="meal-type-btn" data-val="下午茶／點心">下午茶／點心</button>
+          <button type="button" class="meal-type-btn" data-val="早餐">早餐</button>
         </div>
         <input type="hidden" id="new-meal-type" value="午餐">
       </div>
+      <div class="input-group"><label class="lbl">截止時間</label><input class="inp" id="new-deadline" type="datetime-local" style="width:220px"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:.5rem">
         <span style="font-size:13px;color:#888">常用店家：</span>
         <div id="store-btns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
@@ -723,26 +157,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     <div class="card">
       <div class="sec-title">菜單品項</div>
       <div id="new-menu-items"></div>
-      <button class="btn-sm" style="margin-top:4px" onclick="addMenuRow()">+ 新增品項</button>
+      <button class="btn-sm" id="add-menu-item-btn" style="margin-top:4px">+ 新增品項</button>
     </div>
-    <button class="btn-sm" id="create-btn" onclick="createOrder()" style="padding:10px 20px;background:#1a1a1a;color:#fff;border-color:#1a1a1a">建立訂單</button>
+    <button class="btn-sm" id="create-btn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border-color:#1a1a1a">建立訂單</button>
   </div>
 
   <!-- 點餐頁 -->
   <div class="page" id="page-order">
-    <div class="back-btn" style="justify-content:space-between">
-      <div style="display:flex;align-items:center;gap:8px">
-        <button class="btn-sm" onclick="showPage('list');showTab('today')">← 返回</button>
+    <div class="back-btn">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button class="btn-sm" id="back-from-order-btn">← 返回</button>
         <span style="font-size:16px;font-weight:500" id="order-store-name"></span>
-        <span style="background:#f0f0f0;border-radius:20px;padding:2px 10px;font-size:12px;color:#555;margin-left:8px" id="order-meal-type"></span>
+        <span class="meal-tag" id="order-meal-type"></span>
         <span style="font-size:13px;color:#f59e0b" id="order-deadline"></span>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="close-order-btn" onclick="closeOrder()">關閉訂單</button>
-        <button class="delete-order-btn" onclick="openDeleteModal()">刪除訂單</button>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn-sm" id="close-order-btn">關閉訂單</button>
+        <button class="btn-sm" id="delete-order-btn" style="border-color:#fca5a5;color:#dc2626">刪除訂單</button>
       </div>
     </div>
-
     <div class="payer-box">
       <div style="width:28px;height:28px;border-radius:50%;background:#B5D4F4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#0C447C;flex-shrink:0"></div>
       <div>
@@ -750,7 +183,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         <div style="font-size:12px;color:#185FA5;margin-top:1px">訂單結束後，請將餐費交給 <span id="payer-name2"></span></div>
       </div>
     </div>
-
     <div class="hint-box" id="order-hint-box" style="display:none">
       <span style="font-size:15px">📝</span>
       <div>
@@ -758,30 +190,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         <div style="font-size:13px;color:#856404" id="order-hint-text"></div>
       </div>
     </div>
-
     <div class="grid2">
       <div>
-        <div class="card">
-          <div class="sec-title">菜單</div>
-          <div id="menu-list"></div>
-        </div>
-        <div class="card">
-          <div class="sec-title">已訂同事</div>
-          <div id="entries-list"></div>
-        </div>
-        <div class="card">
-          <div class="sec-title">訂單彙整</div>
-          <div id="order-summary-list"></div>
-        </div>
+        <div class="card"><div class="sec-title">菜單</div><div id="menu-list"></div></div>
+        <div class="card"><div class="sec-title">已訂同事</div><div id="entries-list"></div></div>
+        <div class="card"><div class="sec-title">訂單彙整</div><div id="order-summary-list"></div></div>
       </div>
       <div>
         <div class="card" style="position:sticky;top:1rem">
           <div class="sec-title">我的訂單</div>
-          <div class="input-group"><label class="lbl">你的名字</label><input class="inp" id="my-name" placeholder="輸入名字" oninput="updateMyTotal()"></div>
+          <div class="input-group"><label class="lbl">你的名字</label><input class="inp" id="my-name" placeholder="輸入名字"></div>
           <div id="my-summary" style="font-size:13px;color:#bbb;padding:.5rem 0">尚未選擇品項</div>
           <div class="input-group" style="margin-top:.75rem"><label class="lbl">備注</label><textarea class="inp" id="my-note" rows="2" placeholder="例：不要香菜" style="resize:none"></textarea></div>
           <div class="total-row"><span>小計</span><span id="my-total">$0</span></div>
-          <button class="btn-primary" id="submit-btn" disabled onclick="submitOrder()">送出訂單</button>
+          <button class="btn-primary" id="submit-btn" disabled>送出訂單</button>
           <div style="font-size:12px;color:#aaa;text-align:center;margin-top:8px">送出後仍可修改，直到訂單關閉</div>
         </div>
       </div>
@@ -790,7 +212,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 </div>
 
 <!-- 編輯店家 Modal -->
-<div class="modal-overlay" id="edit-store-modal" onclick="if(event.target===this)closeStoreEdit()">
+<div class="modal-overlay" id="edit-store-modal">
   <div class="modal">
     <div class="modal-title">編輯店家</div>
     <input type="hidden" id="edit-store-id">
@@ -798,16 +220,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="edit-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
     <div class="input-group"><label class="lbl">備注</label><input class="inp" id="edit-note" placeholder="例：需提前預訂"></div>
     <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="edit-order-hint" placeholder="例：白飯或紫米可選"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
-    <div class="input-group"><label class="lbl">菜單品項</label><div id="edit-menu-items"></div><button class="btn-sm" style="margin-top:4px" onclick="addEditMenuRow()">+ 新增品項</button></div>
+    <div class="input-group"><label class="lbl">菜單品項</label><div id="edit-menu-items"></div><button class="btn-sm" id="add-edit-menu-btn" style="margin-top:4px">+ 新增品項</button></div>
     <div style="display:flex;gap:8px;margin-top:.5rem">
-      <button onclick="saveStoreEdit()" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
-      <button class="btn-sm" onclick="closeStoreEdit()">取消</button>
+      <button id="save-store-edit-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
+      <button class="btn-sm" id="cancel-store-edit-btn">取消</button>
     </div>
   </div>
 </div>
 
 <!-- 刪除訂單 Modal -->
-<div class="modal-overlay" id="delete-order-modal" onclick="if(event.target===this)closeDeleteModal()">
+<div class="modal-overlay" id="delete-order-modal">
   <div class="modal" style="max-width:420px">
     <div class="modal-title" style="color:#dc2626">刪除訂單</div>
     <div style="background:#fff1f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:1.25rem;font-size:13px;color:#dc2626">
@@ -823,10 +245,478 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     </div>
     <div id="delete-error" style="font-size:13px;color:#dc2626;margin-bottom:.75rem;min-height:18px"></div>
     <div style="display:flex;gap:8px">
-      <button onclick="confirmDeleteOrder()" style="padding:9px 16px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-size:14px;cursor:pointer">確認刪除</button>
-      <button class="btn-sm" onclick="closeDeleteModal()">取消</button>
+      <button id="confirm-delete-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-size:14px;cursor:pointer">確認刪除</button>
+      <button class="btn-sm" id="cancel-delete-btn">取消</button>
     </div>
   </div>
 </div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
+
+const app = initializeApp({
+  apiKey: "AIzaSyA_tFbY1Cshh-u2qum2fg3fWijfHtYwBE0",
+  authDomain: "order-e395c.firebaseapp.com",
+  projectId: "order-e395c",
+  storageBucket: "order-e395c.firebasestorage.app",
+  messagingSenderId: "77302517511",
+  appId: "1:77302517511:web:2248241cbad0bb999cbfa2"
+});
+const db = getFirestore(app);
+
+let currentOrder = null;
+let unsubOrder = null;
+const myQty = {};
+
+const $ = id => document.getElementById(id);
+
+// ── 初始化 ──
+function init() {
+  $('today-date').textContent = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  $('new-deadline').value = new Date().toISOString().slice(0,16);
+  const savedName = localStorage.getItem('myName');
+  if(savedName) $('my-name').value = savedName;
+
+  // tab 切換
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      $('tabp-'+tab).classList.add('active');
+      if(tab==='today') loadTodayOrders();
+      if(tab==='accounts') loadAccounts();
+      if(tab==='history') loadHistory();
+      if(tab==='stores') loadStores();
+    });
+  });
+
+  // 用途選擇
+  document.querySelectorAll('.meal-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.meal-type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      $('new-meal-type').value = btn.dataset.val;
+    });
+  });
+
+  // 按鈕事件
+  $('new-order-btn').addEventListener('click', goNewOrder);
+  $('back-from-new-btn').addEventListener('click', () => showPage('list'));
+  $('back-from-order-btn').addEventListener('click', () => showPage('list'));
+  $('add-menu-item-btn').addEventListener('click', () => addMenuRow());
+  $('create-btn').addEventListener('click', createOrder);
+  $('submit-btn').addEventListener('click', submitOrder);
+  $('my-name').addEventListener('input', updateMyTotal);
+  $('close-order-btn').addEventListener('click', closeOrder);
+  $('delete-order-btn').addEventListener('click', openDeleteModal);
+  $('confirm-delete-btn').addEventListener('click', confirmDeleteOrder);
+  $('cancel-delete-btn').addEventListener('click', () => $('delete-order-modal').style.display='none');
+  $('add-store-btn').addEventListener('click', () => $('new-store-form').style.display='block');
+  $('cancel-new-store-btn').addEventListener('click', () => $('new-store-form').style.display='none');
+  $('save-new-store-btn').addEventListener('click', saveNewStore);
+  $('add-store-item-btn').addEventListener('click', () => addStoreRow('new-store-items'));
+  $('add-edit-menu-btn').addEventListener('click', () => addStoreRow('edit-menu-items'));
+  $('save-store-edit-btn').addEventListener('click', saveStoreEdit);
+  $('cancel-store-edit-btn').addEventListener('click', () => $('edit-store-modal').style.display='none');
+  $('edit-store-modal').addEventListener('click', e => { if(e.target===$('edit-store-modal')) $('edit-store-modal').style.display='none'; });
+  $('delete-order-modal').addEventListener('click', e => { if(e.target===$('delete-order-modal')) $('delete-order-modal').style.display='none'; });
+
+  showPage('list');
+  loadTodayOrders();
+}
+
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  $('page-'+page).classList.add('active');
+  if(page==='list') loadTodayOrders();
+}
+
+function goNewOrder() {
+  $('new-deadline').value = new Date().toISOString().slice(0,16);
+  $('new-store-name').value=''; $('new-payer').value=''; $('new-menu-items').innerHTML='';
+  document.querySelectorAll('.meal-type-btn').forEach((b,i)=>b.classList.toggle('active',i===0));
+  $('new-meal-type').value='午餐';
+  loadStoreButtons();
+  showPage('new-order');
+}
+
+// ── 今日訂單列表 ──
+async function loadTodayOrders() {
+  const today = new Date().toISOString().slice(0,10);
+  const snap = await getDocs(query(collection(db,'orders'), orderBy('createdAt','desc')));
+  const orders = snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(o => o.status==='open' && o.createdAt?.slice(0,10)===today);
+  const list = $('today-list');
+  if(orders.length===0){
+    list.innerHTML='<div style="text-align:center;padding:3rem;color:#888"><div style="font-size:16px;margin-bottom:8px">今天還沒有訂單</div><div style="font-size:13px">點右上角「+ 新增訂單」發起</div></div>';
+    return;
+  }
+  list.innerHTML = orders.map(o => {
+    const total = o.entries.reduce((s,e)=>s+e.total,0);
+    const deadline = (o.deadline||'').replace('T',' ');
+    const names = o.entries.map(e=>`<span style="background:#f5f5f5;border-radius:20px;padding:3px 10px;font-size:12px;color:#555">${e.name}</span>`).join('');
+    return `<div class="order-card" data-id="${o.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px;font-weight:500">${o.storeName}</span>
+            <span class="meal-tag">${o.mealType||'午餐'}</span>
+          </div>
+          <div style="font-size:12px;color:#888;margin-top:4px">發起人：${o.payer}・截止 ${deadline}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:12px">
+          <span class="badge b-info">訂購中</span>
+          <div style="font-size:12px;color:#888;margin-top:4px">${o.entries.length} 人已訂</div>
+        </div>
+      </div>
+      ${o.entries.length>0?`<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">${names}</div>`:''}
+      <div style="margin-top:10px;font-size:13px;color:#aaa;display:flex;justify-content:space-between">
+        <span>${o.menuItems.map(m=>m.name).slice(0,3).join('、')}${o.menuItems.length>3?'…':''}</span>
+        <span style="color:#1a1a1a;font-weight:500">共 $${total}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('.order-card').forEach(card => {
+    card.addEventListener('click', () => enterOrder(card.dataset.id));
+  });
+}
+
+async function enterOrder(id) {
+  const snap = await getDoc(doc(db,'orders',id));
+  if(!snap.exists()) return;
+  currentOrder = { id: snap.id, ...snap.data() };
+  Object.keys(myQty).forEach(k => delete myQty[k]);
+  showPage('order');
+  subscribeOrder();
+  renderOrderPage();
+}
+
+// ── 新增訂單 ──
+async function loadStoreButtons() {
+  const snap = await getDocs(collection(db,'stores'));
+  const wrap = $('store-btns');
+  wrap.innerHTML='';
+  snap.docs.forEach(d => {
+    const s = d.data();
+    const btn = document.createElement('button');
+    btn.className='btn-sm'; btn.textContent=s.name;
+    btn.addEventListener('click', () => {
+      $('new-store-name').value=s.name;
+      $('new-menu-items').innerHTML='';
+      s.menuItems.forEach(m=>addMenuRow(m.name,m.price));
+    });
+    wrap.appendChild(btn);
+  });
+}
+
+function addMenuRow(name='', price='') {
+  const div = document.createElement('div');
+  div.className='menu-row';
+  div.innerHTML=`<input class="inp" placeholder="品項名稱" value="${name}"><input class="inp" placeholder="價格" type="number" value="${price}" style="width:90px"><button class="btn-sm">刪除</button>`;
+  div.querySelector('button').addEventListener('click', ()=>div.remove());
+  $('new-menu-items').appendChild(div);
+}
+
+async function createOrder() {
+  const storeName=$('new-store-name').value.trim();
+  const mealType=$('new-meal-type').value||'午餐';
+  const deadline=$('new-deadline').value;
+  const payer=$('new-payer').value.trim();
+  const rows=document.querySelectorAll('#new-menu-items .menu-row');
+  const menuItems=[];
+  rows.forEach(r=>{
+    const inputs=r.querySelectorAll('input');
+    const n=inputs[0].value.trim(), p=Number(inputs[1].value);
+    if(n&&p) menuItems.push({name:n,price:p});
+  });
+  if(!storeName||!payer) return alert('請填寫店家名稱和付款人');
+  if(menuItems.length===0) return alert('請至少新增一個菜單品項');
+  $('create-btn').textContent='建立中...';
+  $('create-btn').disabled=true;
+
+  const storeSnap=await getDocs(collection(db,'stores'));
+  let orderHint='';
+  storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName&&s.orderHint) orderHint=s.orderHint; });
+
+  const ref=await addDoc(collection(db,'orders'),{
+    storeName,mealType,deadline,payer,menuItems,orderHint,
+    status:'open',createdAt:new Date().toISOString(),entries:[]
+  });
+  $('create-btn').textContent='建立訂單'; $('create-btn').disabled=false;
+  currentOrder={id:ref.id,storeName,mealType,deadline,payer,menuItems,orderHint,status:'open',entries:[]};
+  Object.keys(myQty).forEach(k=>delete myQty[k]);
+  showPage('order');
+  subscribeOrder();
+  renderOrderPage();
+}
+
+// ── 點餐頁面 ──
+function subscribeOrder() {
+  if(unsubOrder) unsubOrder();
+  if(!currentOrder) return;
+  unsubOrder=onSnapshot(doc(db,'orders',currentOrder.id), snap=>{
+    if(snap.exists()){ currentOrder={id:snap.id,...snap.data()}; renderOrderPage(); }
+  });
+}
+
+function renderOrderPage() {
+  if(!currentOrder) return;
+  $('order-store-name').textContent=currentOrder.storeName;
+  $('order-meal-type').textContent=currentOrder.mealType||'午餐';
+  $('order-deadline').textContent='截止：'+(currentOrder.deadline||'').replace('T',' ');
+  $('payer-name').textContent=currentOrder.payer;
+  $('payer-name2').textContent=currentOrder.payer;
+
+  if(currentOrder.orderHint){ $('order-hint-box').style.display='flex'; $('order-hint-text').textContent=currentOrder.orderHint; }
+  else $('order-hint-box').style.display='none';
+
+  // 菜單
+  const menu=$('menu-list'); menu.innerHTML='';
+  currentOrder.menuItems.forEach(item=>{
+    const key=item.name.replace(/[^a-zA-Z0-9]/g,'_');
+    const div=document.createElement('div'); div.className='menu-item';
+    div.innerHTML=`<span>${item.name}</span><div style="display:flex;align-items:center;gap:8px"><span class="price-label">$${item.price}</span><button class="qb" data-name="${item.name}" data-delta="-1">−</button><span id="q-${key}">${myQty[item.name]||0}</span><button class="qb" data-name="${item.name}" data-delta="1">+</button></div>`;
+    menu.appendChild(div);
+  });
+  menu.querySelectorAll('.qb').forEach(btn=>{
+    btn.addEventListener('click',()=>chg(btn.dataset.name, Number(btn.dataset.delta)));
+  });
+
+  // 已訂同事
+  const entriesEl=$('entries-list'); entriesEl.innerHTML='';
+  if(currentOrder.entries.length===0){
+    entriesEl.innerHTML='<div style="color:#bbb;font-size:13px;padding:.5rem 0">還沒有人訂餐</div>';
+  } else {
+    currentOrder.entries.forEach((e,i)=>{
+      const div=document.createElement('div'); div.className='person-row';
+      div.innerHTML=`<div class="av">${e.name[0]}</div>
+        <div style="flex:1"><div class="name-text">${e.name}</div>
+        <div class="sub-text">${e.items.map(it=>`${it.name} x${it.qty}`).join('、')} → $${e.total}${e.note?' ・'+e.note:''}</div></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="badge ${e.paid?'b-ok':'b-warn'}">${e.paid?'已付':'未付'}</span>
+          <button class="btn-sm del-entry-btn" data-index="${i}" style="font-size:11px;padding:3px 7px;color:#dc2626;border-color:#fca5a5">刪</button>
+        </div>`;
+      entriesEl.appendChild(div);
+    });
+    entriesEl.querySelectorAll('.del-entry-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>deleteEntry(Number(btn.dataset.index)));
+    });
+  }
+
+  // 訂單彙整
+  const summaryEl=$('order-summary-list'); summaryEl.innerHTML='';
+  if(currentOrder.entries.length===0){
+    summaryEl.innerHTML='<div style="color:#bbb;font-size:13px;padding:.5rem 0">尚無訂單</div>';
+  } else {
+    const map={};
+    currentOrder.entries.forEach(e=>{
+      e.items.forEach(it=>{
+        const key=e.note?it.name+'__'+e.note:it.name;
+        if(!map[key]) map[key]={name:it.name,note:e.note||'',qty:0,price:it.price};
+        map[key].qty+=it.qty;
+      });
+    });
+    const totalItems=Object.values(map).reduce((s,v)=>s+v.qty,0);
+    const grandTotal=currentOrder.entries.reduce((s,e)=>s+e.total,0);
+    summaryEl.innerHTML=Object.values(map).map(v=>
+      `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5">
+        <div><span style="font-size:14px;font-weight:500">${v.name}</span>${v.note?`<span style="font-size:12px;color:#f59e0b;margin-left:6px">備注：${v.note}</span>`:''}</div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="font-size:13px;color:#888">x ${v.qty}</span><span style="font-size:14px;font-weight:500">$${v.price*v.qty}</span></div>
+      </div>`).join('')+
+      `<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;border-top:1px solid #eee;margin-top:4px"><span>共 ${totalItems} 份</span><span>$${grandTotal}</span></div>`;
+  }
+
+  // 還原我的訂單
+  const myName=$('my-name').value.trim();
+  if(myName){
+    const myEntry=currentOrder.entries.find(e=>e.name===myName);
+    if(myEntry){
+      $('submit-btn').textContent='更新訂單';
+      $('my-note').value=myEntry.note||'';
+      myEntry.items.forEach(it=>{
+        myQty[it.name]=it.qty;
+        const key=it.name.replace(/[^a-zA-Z0-9]/g,'_');
+        const el=document.getElementById('q-'+key);
+        if(el) el.textContent=it.qty;
+      });
+    }
+  }
+  updateMyTotal();
+}
+
+function chg(name, delta) {
+  myQty[name]=Math.max(0,(myQty[name]||0)+delta);
+  const key=name.replace(/[^a-zA-Z0-9]/g,'_');
+  const el=document.getElementById('q-'+key);
+  if(el) el.textContent=myQty[name];
+  updateMyTotal();
+}
+
+function updateMyTotal() {
+  if(!currentOrder) return;
+  const items=Object.entries(myQty).filter(([,v])=>v>0);
+  const total=items.reduce((s,[n,v])=>{ const item=currentOrder.menuItems.find(m=>m.name===n); return s+(item?item.price*v:0); },0);
+  $('my-total').textContent='$'+total;
+  $('my-summary').innerHTML=items.length===0?'<span style="color:#bbb">尚未選擇品項</span>':
+    items.map(([n,v])=>{ const item=currentOrder.menuItems.find(m=>m.name===n); return `<div class="summary-row"><span>${n} x${v}</span><span>$${item?item.price*v:0}</span></div>`; }).join('');
+  $('submit-btn').disabled=items.length===0||!$('my-name').value.trim();
+}
+
+async function submitOrder() {
+  const name=$('my-name').value.trim();
+  if(!name) return alert('請輸入名字');
+  localStorage.setItem('myName',name);
+  const items=Object.entries(myQty).filter(([,v])=>v>0).map(([n,v])=>{ const item=currentOrder.menuItems.find(m=>m.name===n); return {name:n,qty:v,price:item.price}; });
+  if(items.length===0) return alert('請選擇品項');
+  const total=items.reduce((s,it)=>s+it.price*it.qty,0);
+  const entry={name,items,note:$('my-note').value,total,paid:false,createdAt:new Date().toISOString()};
+  const idx=currentOrder.entries.findIndex(e=>e.name===name);
+  const updated=idx>=0?currentOrder.entries.map((e,i)=>i===idx?entry:e):[...currentOrder.entries,entry];
+  await updateDoc(doc(db,'orders',currentOrder.id),{entries:updated});
+  $('submit-btn').textContent='已送出！';
+  setTimeout(()=>{ $('submit-btn').textContent='更新訂單'; },2000);
+}
+
+async function deleteEntry(index) {
+  if(!confirm('確定要刪除這筆訂單？')) return;
+  const updated=currentOrder.entries.filter((_,i)=>i!==index);
+  await updateDoc(doc(db,'orders',currentOrder.id),{entries:updated});
+}
+
+async function closeOrder() {
+  if(!currentOrder) return;
+  if(!confirm('確定關閉訂單？關閉後將無法新增或修改訂餐。')) return;
+  await updateDoc(doc(db,'orders',currentOrder.id),{status:'closed'});
+  if(unsubOrder) unsubOrder();
+  currentOrder=null;
+  showPage('list');
+}
+
+function openDeleteModal() {
+  if(!currentOrder) return;
+  $('delete-payer-input').value=''; $('delete-confirm-input').value=''; $('delete-error').textContent='';
+  $('delete-order-name').textContent=currentOrder.storeName;
+  $('delete-order-payer').textContent=currentOrder.payer;
+  $('delete-order-modal').style.display='flex';
+}
+
+async function confirmDeleteOrder() {
+  const payerInput=$('delete-payer-input').value.trim();
+  const confirmText=$('delete-confirm-input').value.trim();
+  const errorEl=$('delete-error');
+  if(payerInput!==currentOrder.payer){ errorEl.textContent='付款人姓名不正確'; return; }
+  if(confirmText!=='確認刪除'){ errorEl.textContent='請輸入「確認刪除」四個字'; return; }
+  await deleteDoc(doc(db,'orders',currentOrder.id));
+  if(unsubOrder) unsubOrder();
+  currentOrder=null;
+  $('delete-order-modal').style.display='none';
+  showPage('list');
+}
+
+// ── 帳務 ──
+async function loadAccounts() {
+  const snap=await getDocs(collection(db,'orders'));
+  const orders=snap.docs.map(d=>({id:d.id,...d.data()}));
+  const allEntries=orders.flatMap(o=>o.entries.map((e,i)=>({...e,orderId:o.id,entryIndex:i,storeName:o.storeName,payer:o.payer,date:o.createdAt?.slice(0,10)})));
+  const people={};
+  allEntries.forEach(e=>{ if(!people[e.name]) people[e.name]={total:0,unpaid:0}; people[e.name].total+=e.total; if(!e.paid) people[e.name].unpaid+=e.total; });
+  $('stat-spent').textContent='$'+Object.values(people).reduce((s,p)=>s+p.total,0);
+  $('stat-unpaid').textContent='$'+Object.values(people).reduce((s,p)=>s+p.unpaid,0);
+  $('stat-orders').textContent=orders.length;
+  $('people-list').innerHTML=Object.entries(people).map(([name,p])=>
+    `<div class="person-row"><div class="av">${name[0]}</div><div style="flex:1"><div class="name-text">${name}</div><div class="sub-text">累積 $${p.total}・未付 $${p.unpaid}</div></div>${p.unpaid===0?'<span class="badge b-ok">結清</span>':`<span class="tag-debt">欠款 $${p.unpaid}</span>`}</div>`
+  ).join('')||'<div style="color:#bbb;font-size:13px">尚無資料</div>';
+  const unpaid=allEntries.filter(e=>!e.paid);
+  const unpaidList=$('unpaid-list');
+  unpaidList.innerHTML=unpaid.length===0?'<div style="color:#bbb;font-size:13px">所有人都已結清</div>':
+    unpaid.map(e=>`<div class="settle-row"><div><div style="font-size:14px">${e.name} 欠 ${e.payer}</div><div class="sub-text">${e.date} ${e.storeName}</div></div><div style="text-align:right"><div style="font-weight:500">$${e.total}</div><button class="btn-sm mark-paid-btn" data-order="${e.orderId}" data-index="${e.entryIndex}" style="margin-top:4px">標記已還</button></div></div>`).join('');
+  unpaidList.querySelectorAll('.mark-paid-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>markPaid(btn.dataset.order, Number(btn.dataset.index)));
+  });
+}
+
+async function markPaid(orderId, entryIndex) {
+  const snap=await getDoc(doc(db,'orders',orderId));
+  if(!snap.exists()) return;
+  const entries=[...snap.data().entries];
+  entries[entryIndex]={...entries[entryIndex],paid:true};
+  await updateDoc(doc(db,'orders',orderId),{entries});
+  loadAccounts();
+}
+
+// ── 歷史 ──
+async function loadHistory() {
+  const snap=await getDocs(query(collection(db,'orders'),orderBy('createdAt','desc')));
+  const orders=snap.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.status==='closed');
+  $('history-list').innerHTML=orders.length===0?'<div style="color:#bbb;font-size:13px">尚無已結束的訂單</div>':
+    orders.map(o=>{
+      const total=o.entries.reduce((s,e)=>s+e.total,0);
+      const allPaid=o.entries.length>0&&o.entries.every(e=>e.paid);
+      return `<div class="order-hist"><div><div style="font-weight:500">${o.storeName} <span class="meal-tag">${o.mealType||'午餐'}</span></div><div class="sub-text">${o.createdAt?.slice(0,10)} · ${o.entries.length} 人 · 付款人：${o.payer}</div></div><div style="text-align:right"><div style="font-weight:500">$${total}</div><span class="badge ${allPaid?'b-ok':'b-warn'}" style="margin-top:4px;display:inline-block">${allPaid?'已完成':'未結清'}</span></div></div>`;
+    }).join('');
+}
+
+// ── 常用店家 ──
+async function loadStores() {
+  const snap=await getDocs(collection(db,'stores'));
+  const stores=snap.docs.map(d=>({id:d.id,...d.data()}));
+  const list=$('stores-list');
+  list.innerHTML=stores.length===0?'<div style="color:#bbb;font-size:13px;padding-bottom:1rem">尚無店家</div>':
+    stores.map(s=>`<div class="store-item"><div style="display:flex;align-items:flex-start;gap:10px"><div style="flex:1"><div style="font-size:14px;font-weight:500">${s.name}</div><div class="sub-text" style="margin-top:3px">${s.menuItems.map(m=>`${m.name} $${m.price}`).join('、')}</div><div style="font-size:12px;margin-top:4px;color:#888">外送門檻：<strong style="color:#1a1a1a">${s.threshold?'$'+s.threshold:'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>${s.orderHint?`<div style="font-size:12px;margin-top:5px;background:#FFF3CD;color:#856404;padding:4px 8px;border-radius:6px;display:inline-block">點餐提醒：${s.orderHint}</div>`:''}</div><button class="btn-sm edit-store-btn" data-id="${s.id}">編輯</button></div></div>`).join('');
+  list.querySelectorAll('.edit-store-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>openStoreEdit(btn.dataset.id));
+  });
+}
+
+async function openStoreEdit(id) {
+  const snap=await getDoc(doc(db,'stores',id));
+  if(!snap.exists()) return;
+  const s=snap.data();
+  $('edit-store-id').value=id; $('edit-store-name').value=s.name;
+  $('edit-threshold').value=s.threshold||''; $('edit-note').value=s.note||''; $('edit-order-hint').value=s.orderHint||'';
+  const c=$('edit-menu-items'); c.innerHTML='';
+  s.menuItems.forEach(m=>addStoreRow('edit-menu-items',m.name,m.price));
+  $('edit-store-modal').style.display='flex';
+}
+
+async function saveStoreEdit() {
+  const id=$('edit-store-id').value, name=$('edit-store-name').value.trim();
+  if(!name) return alert('請輸入店家名稱');
+  const rows=document.querySelectorAll('#edit-menu-items .menu-row');
+  const menuItems=[];
+  rows.forEach(r=>{ const inputs=r.querySelectorAll('input'); const n=inputs[0].value.trim(),p=Number(inputs[1].value); if(n&&p) menuItems.push({name:n,price:p}); });
+  if(menuItems.length===0) return alert('請至少新增一個品項');
+  await updateDoc(doc(db,'stores',id),{name,threshold:Number($('edit-threshold').value)||null,note:$('edit-note').value,orderHint:$('edit-order-hint').value,menuItems});
+  $('edit-store-modal').style.display='none';
+  loadStores();
+}
+
+function addStoreRow(containerId, name='', price='') {
+  const div=document.createElement('div'); div.className='menu-row';
+  div.innerHTML=`<input class="inp" placeholder="品項名稱" value="${name}"><input class="inp" placeholder="價格" type="number" value="${price}" style="width:90px"><button class="btn-sm">刪除</button>`;
+  div.querySelector('button').addEventListener('click',()=>div.remove());
+  $(containerId).appendChild(div);
+}
+
+async function saveNewStore() {
+  const name=$('ns-name').value.trim();
+  if(!name) return alert('請輸入店家名稱');
+  const rows=document.querySelectorAll('#new-store-items .menu-row');
+  const menuItems=[];
+  rows.forEach(r=>{ const inputs=r.querySelectorAll('input'); const n=inputs[0].value.trim(),p=Number(inputs[1].value); if(n&&p) menuItems.push({name:n,price:p}); });
+  if(menuItems.length===0) return alert('請至少新增一個品項');
+  await addDoc(collection(db,'stores'),{name,threshold:Number($('ns-threshold').value)||null,note:$('ns-note').value,orderHint:$('ns-order-hint').value,menuItems});
+  $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value=''; $('ns-order-hint').value='';
+  $('new-store-items').innerHTML='';
+  $('new-store-form').style.display='none';
+  loadStores();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
 </body>
 </html>
