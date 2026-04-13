@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang=“zh-TW”>
+
+<html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -88,6 +89,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 
   <!-- 主頁面（含tab） -->
+
   <div class="page active" id="page-list">
     <div class="tab-page active" id="tabp-today">
       <div id="today-list"></div>
@@ -123,6 +125,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 
   <!-- 新增訂單頁 -->
+
   <div class="page" id="page-new-order">
     <div class="back-btn">
       <div style="display:flex;align-items:center;gap:8px">
@@ -153,6 +156,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 
   <!-- 點餐頁 -->
+
   <div class="page" id="page-order">
     <div class="back-btn">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -173,6 +177,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       <div>
         <div style="font-size:13px;font-weight:500;color:#0C447C">本次付款人：<span id="payer-name"></span></div>
         <div style="font-size:12px;color:#185FA5;margin-top:1px">訂單結束後，請將餐費交給 <span id="payer-name2"></span></div>
+      </div>
+    </div>
+    <div id="threshold-box" style="display:none;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:none;align-items:center;gap:10px">
+      <span style="font-size:15px" id="threshold-icon">🛵</span>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:500;margin-bottom:2px" id="threshold-label"></div>
+        <div style="font-size:13px" id="threshold-status"></div>
       </div>
     </div>
     <div class="hint-box" id="order-hint-box" style="display:none">
@@ -203,7 +214,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 </div>
 
+<!-- 歷史訂單詳情 Modal -->
+
+<div class="modal-overlay" id="history-detail-modal">
+  <div class="modal" style="max-width:560px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem">
+      <div>
+        <div class="modal-title" style="margin-bottom:4px" id="hd-title"></div>
+        <div style="font-size:12px;color:#888" id="hd-meta"></div>
+      </div>
+      <button class="btn-sm" id="close-history-modal-btn" style="flex-shrink:0;margin-left:12px">✕</button>
+    </div>
+    <div id="hd-people" style="margin-bottom:1.25rem"></div>
+    <div style="background:#f5f5f5;border-radius:10px;padding:1rem" id="hd-summary"></div>
+  </div>
+</div>
+
 <!-- 編輯店家 Modal -->
+
 <div class="modal-overlay" id="edit-store-modal">
   <div class="modal">
     <div class="modal-title">編輯店家</div>
@@ -221,6 +249,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 </div>
 
 <!-- 刪除訂單 Modal -->
+
 <div class="modal-overlay" id="delete-order-modal">
   <div class="modal" style="max-width:420px">
     <div class="modal-title" style="color:#dc2626">刪除訂單</div>
@@ -306,6 +335,8 @@ function init() {
   $('cancel-store-edit-btn').addEventListener('click', () => $('edit-store-modal').style.display='none');
   $('edit-store-modal').addEventListener('click', e => { if(e.target===$('edit-store-modal')) $('edit-store-modal').style.display='none'; });
   $('delete-order-modal').addEventListener('click', e => { if(e.target===$('delete-order-modal')) $('delete-order-modal').style.display='none'; });
+  $('close-history-modal-btn').addEventListener('click', ()=>$('history-detail-modal').style.display='none');
+  $('history-detail-modal').addEventListener('click', e=>{ if(e.target===$('history-detail-modal')) $('history-detail-modal').style.display='none'; });
 
   showPage('list');
   loadTodayOrders();
@@ -421,15 +452,15 @@ async function createOrder() {
   $('create-btn').disabled=true;
 
   const storeSnap=await getDocs(collection(db,'stores'));
-  let orderHint='';
-  storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName&&s.orderHint) orderHint=s.orderHint; });
+  let orderHint='', threshold=null;
+  storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName){ if(s.orderHint) orderHint=s.orderHint; if(s.threshold) threshold=s.threshold; } });
 
   const ref=await addDoc(collection(db,'orders'),{
-    orderTitle,storeName,mealType,deadline,payer,menuItems,orderHint,
+    orderTitle,storeName,mealType,deadline,payer,menuItems,orderHint,threshold,
     status:'open',createdAt:new Date().toISOString(),entries:[]
   });
   $('create-btn').textContent='建立訂單'; $('create-btn').disabled=false;
-  currentOrder={id:ref.id,orderTitle,storeName,mealType,deadline,payer,menuItems,orderHint,status:'open',entries:[]};
+  currentOrder={id:ref.id,orderTitle,storeName,mealType,deadline,payer,menuItems,orderHint,threshold,status:'open',entries:[]};
   Object.keys(myQty).forEach(k=>delete myQty[k]);
   showPage('order');
   subscribeOrder();
@@ -455,6 +486,32 @@ function renderOrderPage() {
 
   if(currentOrder.orderHint){ $('order-hint-box').style.display='flex'; $('order-hint-text').textContent=currentOrder.orderHint; }
   else $('order-hint-box').style.display='none';
+
+  // 外送門檻
+  const tbox=$('threshold-box');
+  if(currentOrder.threshold){
+    const grandTotal=currentOrder.entries.reduce((s,e)=>s+e.total,0);
+    const met=grandTotal>=currentOrder.threshold;
+    const diff=currentOrder.threshold-grandTotal;
+    tbox.style.display='flex';
+    if(met){
+      tbox.style.background='#EAF3DE'; tbox.style.border='1px solid #b0dca8';
+      $('threshold-icon').textContent='✅';
+      $('threshold-label').style.color='#27500A';
+      $('threshold-label').textContent=`外送門檻 $${currentOrder.threshold} — 已達標 🎉`;
+      $('threshold-status').style.color='#27500A';
+      $('threshold-status').textContent=`目前合計 $${grandTotal}，可以外送了！`;
+    } else {
+      tbox.style.background='#FFF3CD'; tbox.style.border='1px solid #fde68a';
+      $('threshold-icon').textContent='🛵';
+      $('threshold-label').style.color='#856404';
+      $('threshold-label').textContent=`外送門檻 $${currentOrder.threshold} — 尚未達標`;
+      $('threshold-status').style.color='#856404';
+      $('threshold-status').textContent=`目前合計 $${grandTotal}，還差 $${diff} 才能外送`;
+    }
+  } else {
+    tbox.style.display='none';
+  }
 
   // 菜單
   const menu=$('menu-list'); menu.innerHTML='';
@@ -634,12 +691,62 @@ async function markPaid(orderId, entryIndex) {
 async function loadHistory() {
   const snap=await getDocs(query(collection(db,'orders'),orderBy('createdAt','desc')));
   const orders=snap.docs.map(d=>({id:d.id,...d.data()})).filter(o=>o.status==='closed');
-  $('history-list').innerHTML=orders.length===0?'<div style="color:#bbb;font-size:13px">尚無已結束的訂單</div>':
+  const list=$('history-list');
+  list.innerHTML=orders.length===0?'<div style="color:#bbb;font-size:13px">尚無已結束的訂單</div>':
     orders.map(o=>{
       const total=o.entries.reduce((s,e)=>s+e.total,0);
       const allPaid=o.entries.length>0&&o.entries.every(e=>e.paid);
-      return `<div class="order-hist"><div><div style="font-weight:500">${o.orderTitle||o.storeName}${o.orderTitle?` <span class="meal-tag" style="font-weight:400">${o.storeName}</span>`:''}</div><div class="sub-text">${o.createdAt?.slice(0,10)} · ${o.entries.length} 人 · 付款人：${o.payer}</div></div><div style="text-align:right"><div style="font-weight:500">$${total}</div><span class="badge ${allPaid?'b-ok':'b-warn'}" style="margin-top:4px;display:inline-block">${allPaid?'已完成':'未結清'}</span></div></div>`;
+      return `<div class="order-hist" style="cursor:pointer" data-id="${o.id}">
+        <div>
+          <div style="font-weight:500">${o.orderTitle||o.storeName}${o.orderTitle?` <span class="meal-tag" style="font-weight:400">${o.storeName}</span>`:''}</div>
+          <div class="sub-text">${o.createdAt?.slice(0,10)} · ${o.entries.length} 人 · 付款人：${o.payer}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:12px">
+          <span class="badge ${allPaid?'b-ok':'b-warn'}">${allPaid?'已完成':'未結清'}</span>
+          <span style="font-weight:500">$${total}</span>
+          <span style="color:#bbb;font-size:16px">›</span>
+        </div>
+      </div>`;
     }).join('');
+  list.querySelectorAll('.order-hist[data-id]').forEach(row=>{
+    row.addEventListener('click',()=>openHistoryDetail(row.dataset.id, orders));
+  });
+}
+
+function openHistoryDetail(id, orders) {
+  const o=orders.find(x=>x.id===id);
+  if(!o) return;
+  const total=o.entries.reduce((s,e)=>s+e.total,0);
+  const allPaid=o.entries.length>0&&o.entries.every(e=>e.paid);
+  $('hd-title').textContent=o.orderTitle||o.storeName;
+  $('hd-meta').textContent=`${o.createdAt?.slice(0,10)} · 店家：${o.storeName} · 付款人：${o.payer}`;
+  // 人員明細
+  $('hd-people').innerHTML=`<div class="sec-title">訂餐明細</div>`+
+    (o.entries.length===0?'<div style="color:#bbb;font-size:13px">無訂單記錄</div>':
+    o.entries.map(e=>`
+      <div class="person-row">
+        <div class="av">${e.name[0]}</div>
+        <div style="flex:1">
+          <div class="name-text">${e.name}</div>
+          <div class="sub-text">${e.items.map(it=>`${it.name} x${it.qty}`).join('、')}${e.note?' ・'+e.note:''}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:500">$${e.total}</span>
+          <span class="badge ${e.paid?'b-ok':'b-warn'}">${e.paid?'已付':'未付'}</span>
+        </div>
+      </div>`).join(''));
+  // 彙整
+  const map={};
+  o.entries.forEach(e=>{ e.items.forEach(it=>{ if(!map[it.name]) map[it.name]={qty:0,price:it.price}; map[it.name].qty+=it.qty; }); });
+  $('hd-summary').innerHTML=`<div class="sec-title">品項彙整</div>`+
+    Object.entries(map).map(([name,v])=>
+      `<div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid #e5e5e5">
+        <span>${name} x${v.qty}</span><span style="font-weight:500">$${v.price*v.qty}</span>
+      </div>`).join('')+
+    `<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;margin-top:4px">
+      <span>合計</span><span>$${total}</span>
+    </div>`;
+  $('history-detail-modal').style.display='flex';
 }
 
 // ── 常用店家 ──
@@ -700,5 +807,6 @@ async function saveNewStore() {
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
+
 </body>
 </html>
