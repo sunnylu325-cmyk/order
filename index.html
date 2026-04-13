@@ -81,6 +81,7 @@ async function loadTodayOrders(){
         <div>
           <div style="font-size:16px;font-weight:500">${o.storeName}</div>
           <div style="font-size:12px;color:#888;margin-top:4px">發起人：${o.payer}・截止 ${deadline}</div>
+          <div style="margin-top:5px"><span style="background:#f0f0f0;border-radius:20px;padding:2px 10px;font-size:12px;color:#555">${o.mealType||'午餐'}</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0;margin-left:12px">
           <span class="badge b-info">訂購中</span>
@@ -136,8 +137,11 @@ function addMenuRow(name='', price=''){
 
 async function createOrder(){
   const storeName = $('new-store-name').value.trim();
+  const mealType = document.querySelector('input[name="meal-type"]:checked')?.value || '午餐';
   const deadline = $('new-deadline').value;
   const payer = $('new-payer').value.trim();
+  const mealType = $('new-meal-type').value || '午餐';
+  const orderDate = new Date().toLocaleDateString('zh-TW',{month:'long',day:'numeric'});
   const rows = document.querySelectorAll('#new-menu-items .menu-row');
   const menuItems = [];
   rows.forEach(r => {
@@ -158,7 +162,7 @@ async function createOrder(){
   });
 
   const ref = await addDoc(collection(db,'orders'), {
-    storeName, deadline, payer, menuItems, orderHint,
+    storeName, mealType, deadline, payer, menuItems, orderHint,
     status: 'open', createdAt: new Date().toISOString(), entries: []
   });
   $('create-btn').textContent = '建立訂單';
@@ -167,7 +171,7 @@ async function createOrder(){
   // 清空表單
   $('new-store-name').value=''; $('new-payer').value=''; $('new-menu-items').innerHTML='';
 
-  const order = { id: ref.id, storeName, deadline, payer, menuItems, orderHint, status:'open', entries:[] };
+  const order = { id: ref.id, storeName, mealType, deadline, payer, menuItems, orderHint, status:'open', entries:[] };
   showTab('today');
   showPage('order', order);
 }
@@ -188,7 +192,8 @@ const myQty = {};
 
 function renderOrderPage(){
   if(!currentOrder) return;
-  $('order-store-name').textContent = currentOrder.storeName;
+  const mealLabel = currentOrder.mealType ? ' ・' + currentOrder.mealType : '';
+  $('order-store-name').textContent = currentOrder.storeName + mealLabel;
   $('order-deadline').textContent = '截止：' + (currentOrder.deadline||'').replace('T',' ');
   $('payer-name').textContent = currentOrder.payer;
   $('payer-name2').textContent = currentOrder.payer;
@@ -431,7 +436,7 @@ async function loadHistory(){
       const statusClass=allPaid?'b-ok':'b-warn';
       return '<div class="order-hist">' +
         '<div><div style="font-weight:500">' + o.storeName + '</div>' +
-        '<div class="sub-text">' + (o.createdAt?.slice(0,10)||'') + ' · ' + o.entries.length + ' 人 · 付款人：' + o.payer + '</div></div>' +
+        '<div class="sub-text">' + (o.createdAt?.slice(0,10)||'') + ' · ' + (o.mealType||'午餐') + ' · ' + o.entries.length + ' 人 · 付款人：' + o.payer + '</div></div>' +
         '<div style="text-align:right"><div style="font-weight:500">$' + total + '</div>' +
         '<span class="badge ' + statusClass + '" style="margin-top:4px;display:inline-block">' + statusLabel + '</span></div></div>';
     }).join('');
@@ -535,6 +540,12 @@ function goNewOrder(){
   loadStoreButtons();
 }
 
+function selectMealType(btn){
+  document.querySelectorAll('.meal-type-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  $('new-meal-type').value = btn.dataset.val;
+}
+window.selectMealType=selectMealType;
 window.showTab=showTab; window.showPage=showPage; window.enterOrder=enterOrder;
 window.goNewOrder=goNewOrder; window.addMenuRow=addMenuRow; window.createOrder=createOrder;
 window.chg=chg; window.updateMyTotal=updateMyTotal; window.submitOrder=submitOrder;
@@ -608,6 +619,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .modal-title{font-size:16px;font-weight:500;margin-bottom:1.25rem}
 .close-order-btn{padding:6px 12px;border:1px solid #ddd;border-radius:8px;background:none;font-size:13px;cursor:pointer}
 .delete-order-btn{padding:6px 12px;border:1px solid #fca5a5;border-radius:8px;background:none;font-size:13px;cursor:pointer;color:#dc2626}
+.meal-type-btn{padding:6px 14px;border:1px solid #ddd;border-radius:20px;background:none;font-size:13px;cursor:pointer;color:#888}
+.meal-type-btn.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+.meal-type-btn{display:inline-flex;align-items:center;cursor:pointer}
+.meal-type-btn input{display:none}
+.meal-type-btn span{padding:6px 14px;border:1px solid #ddd;border-radius:20px;font-size:13px;transition:all .15s}
+.meal-type-btn input:checked + span{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+.meal-type-btn:hover span{border-color:#999}
 @media(max-width:600px){.grid2{grid-template-columns:1fr}.stats{flex-wrap:wrap}}
 </style>
 </head>
@@ -672,7 +690,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     <div class="card">
       <div class="sec-title">店家資訊</div>
       <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="new-store-name" placeholder="例：八方雲集"></div>
+      <div class="input-group">
+        <label class="lbl">用餐類型</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <label class="meal-type-btn"><input type="radio" name="meal-type" id="new-meal-type" value="午餐" checked><span>午餐</span></label>
+          <label class="meal-type-btn"><input type="radio" name="meal-type" value="晚餐"><span>晚餐</span></label>
+          <label class="meal-type-btn"><input type="radio" name="meal-type" value="飲料"><span>飲料</span></label>
+          <label class="meal-type-btn"><input type="radio" name="meal-type" value="下午茶點心"><span>下午茶點心</span></label>
+          <label class="meal-type-btn"><input type="radio" name="meal-type" value="早餐"><span>早餐</span></label>
+        </div>
+      </div>
       <div class="input-group"><label class="lbl">截止時間</label><input class="inp" id="new-deadline" type="datetime-local" style="width:220px"></div>
+      <div class="input-group"><label class="lbl">用途</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="meal-type-btn active" data-val="午餐" onclick="selectMealType(this)">午餐</button>
+          <button type="button" class="meal-type-btn" data-val="晚餐" onclick="selectMealType(this)">晚餐</button>
+          <button type="button" class="meal-type-btn" data-val="飲料" onclick="selectMealType(this)">飲料</button>
+          <button type="button" class="meal-type-btn" data-val="下午茶／點心" onclick="selectMealType(this)">下午茶／點心</button>
+          <button type="button" class="meal-type-btn" data-val="早餐" onclick="selectMealType(this)">早餐</button>
+        </div>
+        <input type="hidden" id="new-meal-type" value="午餐">
+      </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:.5rem">
         <span style="font-size:13px;color:#888">常用店家：</span>
         <div id="store-btns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
@@ -696,6 +734,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       <div style="display:flex;align-items:center;gap:8px">
         <button class="btn-sm" onclick="showPage('list');showTab('today')">← 返回</button>
         <span style="font-size:16px;font-weight:500" id="order-store-name"></span>
+        <span style="background:#f0f0f0;border-radius:20px;padding:2px 10px;font-size:12px;color:#555;margin-left:8px" id="order-meal-type"></span>
         <span style="font-size:13px;color:#f59e0b" id="order-deadline"></span>
       </div>
       <div style="display:flex;gap:6px">
@@ -732,7 +771,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         </div>
         <div class="card">
           <div class="sec-title">訂單彙整</div>
-          <div style="font-size:12px;color:#aaa;margin-bottom:.75rem">相同餐點自動合併，備注不同則分開列出</div>
           <div id="order-summary-list"></div>
         </div>
       </div>
