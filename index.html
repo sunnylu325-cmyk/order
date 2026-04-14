@@ -1015,7 +1015,21 @@ async function saveNewStore() {
   loadStores();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  document.querySelectorAll('.thresh-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.target;
+      const val = btn.dataset.val;
+      // 找同群組的按鈕（同一個 data-target）
+      document.querySelectorAll(`.thresh-type-btn[data-target="${targetId}"]`).forEach(b => {
+        b.style.background = b.dataset.val===val ? '#1a1a1a' : '';
+        b.style.color = b.dataset.val===val ? '#fff' : '#888';
+      });
+      document.getElementById(targetId).value = val;
+    });
+  });
+});
 </script>
 </body>
 </html>
