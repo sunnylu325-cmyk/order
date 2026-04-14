@@ -106,7 +106,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       <div id="new-store-form" style="display:none;margin-top:1rem" class="card">
         <div style="font-size:14px;font-weight:500;margin-bottom:1rem">新增店家</div>
         <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="ns-name" placeholder="例：鮮茶道" style="max-width:300px"></div>
-        <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="ns-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
+        <div class="input-group">
+          <label class="lbl">外送門檻</label>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <input class="inp" id="ns-threshold" type="number" placeholder="無門檻留空" style="max-width:120px">
+            <div style="display:flex;border:1px solid #ddd;border-radius:8px;overflow:hidden">
+              <button type="button" class="thresh-type-btn active" data-target="ns-threshold-type" data-val="amount" style="padding:7px 12px;border:none;background:#1a1a1a;color:#fff;font-size:13px;cursor:pointer">金額 $</button>
+              <button type="button" class="thresh-type-btn" data-target="ns-threshold-type" data-val="qty" style="padding:7px 12px;border:none;background:none;font-size:13px;cursor:pointer;color:#888">數量 份</button>
+            </div>
+            <input type="hidden" id="ns-threshold-type" value="amount">
+          </div>
+        </div>
         <div class="input-group"><label class="lbl">備注</label><input class="inp" id="ns-note" placeholder="例：需提前預訂" style="max-width:300px"></div>
         <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
         <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" id="add-store-item-btn" style="margin-top:4px">+ 新增品項</button></div>
@@ -258,7 +268,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     <div class="modal-title">編輯店家</div>
     <input type="hidden" id="edit-store-id">
     <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="edit-store-name"></div>
-    <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="edit-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
+    <div class="input-group">
+      <label class="lbl">外送門檻</label>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <input class="inp" id="edit-threshold" type="number" placeholder="無門檻留空" style="max-width:120px">
+        <div style="display:flex;border:1px solid #ddd;border-radius:8px;overflow:hidden">
+          <button type="button" class="thresh-type-btn" data-target="edit-threshold-type" data-val="amount" id="edit-thresh-amount-btn" style="padding:7px 12px;border:none;background:#1a1a1a;color:#fff;font-size:13px;cursor:pointer">金額 $</button>
+          <button type="button" class="thresh-type-btn" data-target="edit-threshold-type" data-val="qty" id="edit-thresh-qty-btn" style="padding:7px 12px;border:none;background:none;font-size:13px;cursor:pointer;color:#888">數量 份</button>
+        </div>
+        <input type="hidden" id="edit-threshold-type" value="amount">
+      </div>
+    </div>
     <div class="input-group"><label class="lbl">備注</label><input class="inp" id="edit-note" placeholder="例：需提前預訂"></div>
     <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="edit-order-hint" placeholder="例：白飯或紫米可選"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
     <div class="input-group"><label class="lbl">菜單品項</label><div id="edit-menu-items"></div><button class="btn-sm" id="add-edit-menu-btn" style="margin-top:4px">+ 新增品項</button></div>
@@ -580,15 +600,15 @@ async function createOrder() {
   $('create-btn').disabled=true;
 
   const storeSnap=await getDocs(collection(db,'stores'));
-  let orderHint='', threshold=null;
-  storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName){ if(s.orderHint) orderHint=s.orderHint; if(s.threshold) threshold=s.threshold; } });
+  let orderHint='', threshold=null, thresholdType='amount';
+  storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName){ if(s.orderHint) orderHint=s.orderHint; if(s.threshold) { threshold=s.threshold; thresholdType=s.thresholdType||'amount'; } } });
 
   const ref=await addDoc(collection(db,'orders'),{
-    orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,
+    orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,thresholdType,
     status:'open',createdAt:new Date().toISOString(),entries:[]
   });
   $('create-btn').textContent='建立訂單'; $('create-btn').disabled=false;
-  currentOrder={id:ref.id,orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,status:'open',entries:[]};
+  currentOrder={id:ref.id,orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,thresholdType,status:'open',entries:[]};
   // 建立者直接進入填名字頁
   showEnterNamePage(currentOrder);
 }
@@ -624,24 +644,31 @@ function renderOrderPage() {
   // 外送門檻
   const tbox=$('threshold-box');
   if(currentOrder.threshold){
-    const grandTotal=currentOrder.entries.reduce((s,e)=>s+e.total,0);
+    const isQty = currentOrder.thresholdType==='qty';
+    const grandTotal = isQty
+      ? currentOrder.entries.reduce((s,e)=>s+e.items.reduce((ss,it)=>ss+it.qty,0),0)
+      : currentOrder.entries.reduce((s,e)=>s+e.total,0);
     const met=grandTotal>=currentOrder.threshold;
     const diff=currentOrder.threshold-grandTotal;
+    const unit = isQty ? '份' : '$';
+    const thresholdLabel = isQty ? `${currentOrder.threshold} 份` : `$${currentOrder.threshold}`;
+    const currentLabel = isQty ? `${grandTotal} 份` : `$${grandTotal}`;
+    const diffLabel = isQty ? `${diff} 份` : `$${diff}`;
     tbox.style.display='flex';
     if(met){
       tbox.style.background='#EAF3DE'; tbox.style.border='1px solid #b0dca8';
       $('threshold-icon').textContent='✅';
       $('threshold-label').style.color='#27500A';
-      $('threshold-label').textContent=`外送門檻 $${currentOrder.threshold} — 已達標 🎉`;
+      $('threshold-label').textContent=`外送門檻 ${thresholdLabel} — 已達標 🎉`;
       $('threshold-status').style.color='#27500A';
-      $('threshold-status').textContent=`目前合計 $${grandTotal}，可以外送了！`;
+      $('threshold-status').textContent=`目前合計 ${currentLabel}，可以外送了！`;
     } else {
       tbox.style.background='#FFF3CD'; tbox.style.border='1px solid #fde68a';
       $('threshold-icon').textContent='🛵';
       $('threshold-label').style.color='#856404';
-      $('threshold-label').textContent=`外送門檻 $${currentOrder.threshold} — 尚未達標`;
+      $('threshold-label').textContent=`外送門檻 ${thresholdLabel} — 尚未達標`;
       $('threshold-status').style.color='#856404';
-      $('threshold-status').textContent=`目前合計 $${grandTotal}，還差 $${diff} 才能外送`;
+      $('threshold-status').textContent=`目前合計 ${currentLabel}，還差 ${diffLabel} 才能外送`;
     }
   } else {
     tbox.style.display='none';
@@ -931,7 +958,7 @@ async function loadStores() {
   const stores=snap.docs.map(d=>({id:d.id,...d.data()}));
   const list=$('stores-list');
   list.innerHTML=stores.length===0?'<div style="color:#bbb;font-size:13px;padding-bottom:1rem">尚無店家</div>':
-    stores.map(s=>`<div class="store-item"><div style="display:flex;align-items:flex-start;gap:10px"><div style="flex:1"><div style="font-size:14px;font-weight:500">${s.name}</div><div class="sub-text" style="margin-top:3px">${s.menuItems.map(m=>`${m.name} $${m.price}`).join('、')}</div><div style="font-size:12px;margin-top:4px;color:#888">外送門檻：<strong style="color:#1a1a1a">${s.threshold?'$'+s.threshold:'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>${s.orderHint?`<div style="font-size:12px;margin-top:5px;background:#FFF3CD;color:#856404;padding:4px 8px;border-radius:6px;display:inline-block">點餐提醒：${s.orderHint}</div>`:''}</div><button class="btn-sm edit-store-btn" data-id="${s.id}">編輯</button></div></div>`).join('');
+    stores.map(s=>`<div class="store-item"><div style="display:flex;align-items:flex-start;gap:10px"><div style="flex:1"><div style="font-size:14px;font-weight:500">${s.name}</div><div class="sub-text" style="margin-top:3px">${s.menuItems.map(m=>`${m.name} $${m.price}`).join('、')}</div><div style="font-size:12px;margin-top:4px;color:#888">外送門檻：<strong style="color:#1a1a1a">${s.threshold?(s.thresholdType==='qty'?s.threshold+' 份':'$'+s.threshold):'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>${s.orderHint?`<div style="font-size:12px;margin-top:5px;background:#FFF3CD;color:#856404;padding:4px 8px;border-radius:6px;display:inline-block">點餐提醒：${s.orderHint}</div>`:''}</div><button class="btn-sm edit-store-btn" data-id="${s.id}">編輯</button></div></div>`).join('');
   list.querySelectorAll('.edit-store-btn').forEach(btn=>{
     btn.addEventListener('click',()=>openStoreEdit(btn.dataset.id));
   });
@@ -942,7 +969,14 @@ async function openStoreEdit(id) {
   if(!snap.exists()) return;
   const s=snap.data();
   $('edit-store-id').value=id; $('edit-store-name').value=s.name;
-  $('edit-threshold').value=s.threshold||''; $('edit-note').value=s.note||''; $('edit-order-hint').value=s.orderHint||'';
+  $('edit-threshold').value=s.threshold||''; $('edit-threshold-type').value=s.thresholdType||'amount';
+  $('edit-note').value=s.note||''; $('edit-order-hint').value=s.orderHint||'';
+  // 還原按鈕狀態
+  const tt=s.thresholdType||'amount';
+  $('edit-thresh-amount-btn').style.background=tt==='amount'?'#1a1a1a':'';
+  $('edit-thresh-amount-btn').style.color=tt==='amount'?'#fff':'#888';
+  $('edit-thresh-qty-btn').style.background=tt==='qty'?'#1a1a1a':'';
+  $('edit-thresh-qty-btn').style.color=tt==='qty'?'#fff':'#888';
   const c=$('edit-menu-items'); c.innerHTML='';
   s.menuItems.forEach(m=>addStoreRow('edit-menu-items',m.name,m.price));
   $('edit-store-modal').style.display='flex';
@@ -955,7 +989,7 @@ async function saveStoreEdit() {
   const menuItems=[];
   rows.forEach(r=>{ const inputs=r.querySelectorAll('input'); const n=inputs[0].value.trim(),p=Number(inputs[1].value); if(n&&p) menuItems.push({name:n,price:p}); });
   if(menuItems.length===0) return alert('請至少新增一個品項');
-  await updateDoc(doc(db,'stores',id),{name,threshold:Number($('edit-threshold').value)||null,note:$('edit-note').value,orderHint:$('edit-order-hint').value,menuItems});
+  await updateDoc(doc(db,'stores',id),{name,threshold:Number($('edit-threshold').value)||null,thresholdType:$('edit-threshold-type').value,note:$('edit-note').value,orderHint:$('edit-order-hint').value,menuItems});
   $('edit-store-modal').style.display='none';
   loadStores();
 }
@@ -974,7 +1008,7 @@ async function saveNewStore() {
   const menuItems=[];
   rows.forEach(r=>{ const inputs=r.querySelectorAll('input'); const n=inputs[0].value.trim(),p=Number(inputs[1].value); if(n&&p) menuItems.push({name:n,price:p}); });
   if(menuItems.length===0) return alert('請至少新增一個品項');
-  await addDoc(collection(db,'stores'),{name,threshold:Number($('ns-threshold').value)||null,note:$('ns-note').value,orderHint:$('ns-order-hint').value,menuItems});
+  await addDoc(collection(db,'stores'),{name,threshold:Number($('ns-threshold').value)||null,thresholdType:$('ns-threshold-type').value,note:$('ns-note').value,orderHint:$('ns-order-hint').value,menuItems});
   $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value=''; $('ns-order-hint').value='';
   $('new-store-items').innerHTML='';
   $('new-store-form').style.display='none';
