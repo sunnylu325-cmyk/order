@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -50,6 +49,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .total-row{display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;border-top:1px solid #eee;margin-top:6px}
 .payer-box{background:#E6F1FB;border:1px solid #B5D4F4;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:flex;align-items:center;gap:10px}
 .hint-box{background:#FFF3CD;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:flex;align-items:flex-start;gap:8px}
+.payment-box{background:#E1F5EE;border:1px solid #9FE1CB;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:flex;align-items:flex-start;gap:10px}
 .stats{display:flex;gap:12px;margin-bottom:1.25rem}
 .stat{background:#f5f5f5;border-radius:8px;padding:1rem;flex:1}
 .stat-l{font-size:12px;color:#888;margin-bottom:4px}
@@ -66,8 +66,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .modal{background:#fff;border-radius:16px;padding:1.5rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
 .modal-title{font-size:16px;font-weight:500;margin-bottom:1.25rem}
 .meal-tag{background:#f0f0f0;border-radius:20px;padding:2px 10px;font-size:12px;color:#555}
-.meal-type-btn{padding:6px 14px;border:1px solid #ddd;border-radius:20px;background:none;font-size:13px;cursor:pointer;color:#888}
-.meal-type-btn.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
 @media(max-width:600px){.grid2{grid-template-columns:1fr}.stats{flex-wrap:wrap}}
 </style>
 </head>
@@ -80,7 +78,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     </div>
     <button class="btn-sm" id="new-order-btn">+ 新增訂單</button>
   </div>
-
   <div class="tabs">
     <button class="tab-btn active" data-tab="today">今日訂單</button>
     <button class="tab-btn" data-tab="accounts">帳務總覽</button>
@@ -88,12 +85,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     <button class="tab-btn" data-tab="stores">常用店家</button>
   </div>
 
-  <!-- 主頁面（含tab） -->
-
+  <!-- 主列表頁 -->
   <div class="page active" id="page-list">
-    <div class="tab-page active" id="tabp-today">
-      <div id="today-list"></div>
-    </div>
+    <div class="tab-page active" id="tabp-today"><div id="today-list"></div></div>
     <div class="tab-page" id="tabp-accounts">
       <div class="stats">
         <div class="stat"><div class="stat-l">總消費</div><div class="stat-v" id="stat-spent">$0</div></div>
@@ -114,7 +108,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="ns-name" placeholder="例：鮮茶道" style="max-width:300px"></div>
         <div class="input-group"><label class="lbl">外送門檻</label><input class="inp" id="ns-threshold" type="number" placeholder="無門檻留空" style="max-width:150px"></div>
         <div class="input-group"><label class="lbl">備注</label><input class="inp" id="ns-note" placeholder="例：需提前預訂" style="max-width:300px"></div>
-        <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選，可加辣蘿蔔"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
+        <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
         <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" id="add-store-item-btn" style="margin-top:4px">+ 新增品項</button></div>
         <div style="display:flex;gap:8px;margin-top:.5rem">
           <button id="save-new-store-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存店家</button>
@@ -125,7 +119,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 
   <!-- 新增訂單頁 -->
-
   <div class="page" id="page-new-order">
     <div class="back-btn">
       <div style="display:flex;align-items:center;gap:8px">
@@ -134,8 +127,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       </div>
     </div>
     <div class="card">
-      <div class="sec-title">店家資訊</div>
-      <div class="input-group"><label class="lbl">訂單標題 <span style="color:#aaa;font-weight:400">（說明用途與日期，例：4/15 午餐、週五晚餐）</span></label><input class="inp" id="new-order-title" placeholder="例：4/15 午餐、週五晚餐團購"></div>
+      <div class="sec-title">基本資訊</div>
+      <div class="input-group"><label class="lbl">訂單標題 <span style="color:#aaa;font-weight:400">（說明用途與日期，例：4/15 午餐）</span></label><input class="inp" id="new-order-title" placeholder="例：4/15 午餐、週五晚餐團購"></div>
       <div class="input-group"><label class="lbl">店家名稱</label><input class="inp" id="new-store-name" placeholder="例：八方雲集"></div>
       <div class="input-group"><label class="lbl">截止時間</label><input class="inp" id="new-deadline" type="datetime-local" style="width:220px"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:.5rem">
@@ -144,8 +137,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       </div>
     </div>
     <div class="card">
-      <div class="sec-title">付款人</div>
+      <div class="sec-title">付款人與收款方式</div>
       <div class="input-group"><label class="lbl">這次誰去拿餐付錢？</label><input class="inp" id="new-payer" placeholder="輸入付款人姓名" style="max-width:240px"></div>
+      <div class="input-group"><label class="lbl">收款方式 <span style="color:#aaa;font-weight:400">（選填）</span></label><input class="inp" id="new-payment-method" placeholder="例：Line Pay、現金、匯款至 012-345-678" style="max-width:400px"><div style="font-size:12px;color:#aaa;margin-top:4px">會顯示在訂單頁面提醒大家</div></div>
     </div>
     <div class="card">
       <div class="sec-title">菜單品項</div>
@@ -155,12 +149,30 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     <button class="btn-sm" id="create-btn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border-color:#1a1a1a">建立訂單</button>
   </div>
 
-  <!-- 點餐頁 -->
+  <!-- 填寫訂購人頁 -->
+  <div class="page" id="page-enter-name">
+    <div class="back-btn">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn-sm" id="back-from-name-btn">← 返回</button>
+        <span style="font-size:16px;font-weight:500" id="enter-name-title"></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="sec-title">訂購人資訊</div>
+      <div style="font-size:13px;color:#888;margin-bottom:1rem">請先輸入你的名字，再進入點餐頁面選擇餐點。</div>
+      <div class="input-group"><label class="lbl">你的名字</label><input class="inp" id="enter-name-input" placeholder="輸入名字" style="max-width:240px"></div>
+      <div id="already-ordered-hint" style="display:none;margin-top:.5rem;padding:10px 14px;background:#E6F1FB;border:1px solid #B5D4F4;border-radius:8px;font-size:13px;color:#0C447C"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="go-order-btn" style="padding:10px 20px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;font-weight:500;cursor:pointer">進入點餐</button>
+    </div>
+  </div>
 
+  <!-- 點餐頁 -->
   <div class="page" id="page-order">
     <div class="back-btn">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <button class="btn-sm" id="back-from-order-btn">← 返回</button>
+        <button class="btn-sm" id="back-from-order-btn">← 返回訂單列表</button>
         <div>
           <span style="font-size:16px;font-weight:500" id="order-store-name"></span>
           <div style="font-size:12px;color:#888;margin-top:2px" id="order-title-sub"></div>
@@ -179,7 +191,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         <div style="font-size:12px;color:#185FA5;margin-top:1px">訂單結束後，請將餐費交給 <span id="payer-name2"></span></div>
       </div>
     </div>
-    <div id="threshold-box" style="display:none;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:none;align-items:center;gap:10px">
+    <div class="payment-box" id="payment-method-box" style="display:none">
+      <span style="font-size:15px">💳</span>
+      <div>
+        <div style="font-size:12px;font-weight:500;color:#085041;margin-bottom:2px">收款方式</div>
+        <div style="font-size:13px;color:#085041" id="payment-method-text"></div>
+      </div>
+    </div>
+    <div id="threshold-box" style="display:none;border-radius:8px;padding:10px 14px;margin-bottom:1rem;align-items:center;gap:10px">
       <span style="font-size:15px" id="threshold-icon">🛵</span>
       <div style="flex:1">
         <div style="font-size:12px;font-weight:500;margin-bottom:2px" id="threshold-label"></div>
@@ -202,7 +221,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       <div>
         <div class="card" style="position:sticky;top:1rem">
           <div class="sec-title">我的訂單</div>
-          <div class="input-group"><label class="lbl">你的名字</label><input class="inp" id="my-name" placeholder="輸入名字"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid #f5f5f5">
+            <div class="av" id="order-my-av" style="flex-shrink:0"></div>
+            <span style="font-weight:500" id="order-my-name"></span>
+            <button class="btn-sm" id="change-name-btn" style="font-size:11px;padding:3px 8px;margin-left:auto">換人點餐</button>
+          </div>
           <div id="my-summary" style="font-size:13px;color:#bbb;padding:.5rem 0">尚未選擇品項</div>
           <div class="input-group" style="margin-top:.75rem"><label class="lbl">備注</label><textarea class="inp" id="my-note" rows="2" placeholder="例：不要香菜" style="resize:none"></textarea></div>
           <div class="total-row"><span>小計</span><span id="my-total">$0</span></div>
@@ -215,14 +238,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 </div>
 
 <!-- 歷史訂單詳情 Modal -->
-
 <div class="modal-overlay" id="history-detail-modal">
   <div class="modal" style="max-width:560px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem">
-      <div>
-        <div class="modal-title" style="margin-bottom:4px" id="hd-title"></div>
-        <div style="font-size:12px;color:#888" id="hd-meta"></div>
-      </div>
+      <div><div class="modal-title" style="margin-bottom:4px" id="hd-title"></div><div style="font-size:12px;color:#888" id="hd-meta"></div></div>
       <div style="display:flex;gap:8px;flex-shrink:0;margin-left:12px">
         <button class="btn-sm" id="hd-delete-btn" style="color:#dc2626;border-color:#fca5a5">刪除</button>
         <button class="btn-sm" id="close-history-modal-btn">✕</button>
@@ -234,7 +253,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 </div>
 
 <!-- 編輯店家 Modal -->
-
 <div class="modal-overlay" id="edit-store-modal">
   <div class="modal">
     <div class="modal-title">編輯店家</div>
@@ -251,8 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 </div>
 
-<!-- 調帳 Modal（歷史訂單用） -->
-
+<!-- 調帳 Modal -->
 <div class="modal-overlay" id="adj-modal">
   <div class="modal" style="max-width:400px">
     <div class="modal-title">調整金額</div>
@@ -264,14 +281,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         <button id="adj-type-sub" style="padding:7px 16px;border:none;background:none;font-size:13px;cursor:pointer;color:#888">－ 退款</button>
       </div>
     </div>
-    <div class="input-group">
-      <label class="lbl">金額</label>
-      <input class="inp" id="adj-amount" type="number" placeholder="例：20" min="1" style="max-width:140px">
-    </div>
-    <div class="input-group">
-      <label class="lbl">說明</label>
-      <input class="inp" id="adj-note" placeholder="例：加青菜">
-    </div>
+    <div class="input-group"><label class="lbl">金額</label><input class="inp" id="adj-amount" type="number" placeholder="例：20" min="1" style="max-width:140px"></div>
+    <div class="input-group"><label class="lbl">說明</label><input class="inp" id="adj-note" placeholder="例：加青菜"></div>
     <div id="adj-error" style="font-size:13px;color:#dc2626;margin-bottom:.5rem;min-height:18px"></div>
     <div style="display:flex;gap:8px">
       <button id="save-adj-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
@@ -281,7 +292,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 </div>
 
 <!-- 刪除訂單 Modal -->
-
 <div class="modal-overlay" id="delete-order-modal">
   <div class="modal" style="max-width:420px">
     <div class="modal-title" style="color:#dc2626">刪除訂單</div>
@@ -304,6 +314,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 </div>
 
+<div id="lock-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#f5f5f5;z-index:999;display:flex;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:2rem;width:100%;max-width:320px;text-align:center;border:1px solid #eee">
+    <div style="font-size:20px;font-weight:500;margin-bottom:.5rem">訂餐系統</div>
+    <div style="font-size:13px;color:#888;margin-bottom:1.5rem">請輸入密碼進入</div>
+    <input type="password" id="pw-input" class="inp" placeholder="輸入密碼" style="text-align:center;margin-bottom:.75rem">
+    <div id="pw-error" style="font-size:13px;color:#dc2626;margin-bottom:.75rem;min-height:18px"></div>
+    <button id="pw-btn" style="width:100%;padding:10px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;font-weight:500;cursor:pointer">進入</button>
+  </div>
+</div>
+
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
 import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
@@ -320,17 +340,32 @@ const db = getFirestore(app);
 
 let currentOrder = null;
 let unsubOrder = null;
+let currentOrderer = ''; // 目前正在幫誰點餐
 const myQty = {};
-let myQtyInitialized = false;
 
 const $ = id => document.getElementById(id);
 
+// ── 密碼 ──
+function initPassword() {
+  if(sessionStorage.getItem('auth')==='ok') { $('lock-screen').style.display='none'; return; }
+  $('lock-screen').style.display='flex';
+  const check = () => {
+    if($('pw-input').value==='26287090'){
+      $('lock-screen').style.display='none';
+      sessionStorage.setItem('auth','ok');
+    } else {
+      $('pw-error').textContent='密碼錯誤，請再試一次';
+    }
+  };
+  $('pw-btn').addEventListener('click', check);
+  $('pw-input').addEventListener('keydown', e=>{ if(e.key==='Enter') check(); });
+}
+
 // ── 初始化 ──
 function init() {
+  initPassword();
   $('today-date').textContent = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
   $('new-deadline').value = new Date().toISOString().slice(0,16);
-  const savedName = localStorage.getItem('myName');
-  if(savedName) $('my-name').value = savedName;
 
   // tab 切換
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -347,14 +382,13 @@ function init() {
     });
   });
 
-  // 按鈕事件
   $('new-order-btn').addEventListener('click', goNewOrder);
   $('back-from-new-btn').addEventListener('click', () => showPage('list'));
+  $('back-from-name-btn').addEventListener('click', () => showPage('list'));
   $('back-from-order-btn').addEventListener('click', () => showPage('list'));
   $('add-menu-item-btn').addEventListener('click', () => addMenuRow());
   $('create-btn').addEventListener('click', createOrder);
   $('submit-btn').addEventListener('click', submitOrder);
-  $('my-name').addEventListener('input', updateMyTotal);
   $('close-order-btn').addEventListener('click', closeOrder);
   $('delete-order-btn').addEventListener('click', openDeleteModal);
   $('confirm-delete-btn').addEventListener('click', confirmDeleteOrder);
@@ -370,6 +404,11 @@ function init() {
   $('delete-order-modal').addEventListener('click', e => { if(e.target===$('delete-order-modal')) $('delete-order-modal').style.display='none'; });
   $('close-history-modal-btn').addEventListener('click', ()=>$('history-detail-modal').style.display='none');
   $('history-detail-modal').addEventListener('click', e=>{ if(e.target===$('history-detail-modal')) $('history-detail-modal').style.display='none'; });
+  $('go-order-btn').addEventListener('click', goToOrder);
+  $('change-name-btn').addEventListener('click', () => {
+    // 換人點餐：回到填名字頁
+    showEnterNamePage(currentOrder);
+  });
 
   // 調帳 modal
   let adjType='add';
@@ -384,7 +423,6 @@ function init() {
   $('adj-type-sub').addEventListener('click',()=>setAdjType('sub'));
   $('cancel-adj-btn').addEventListener('click',()=>$('adj-modal').style.display='none');
   $('adj-modal').addEventListener('click',e=>{ if(e.target===$('adj-modal')) $('adj-modal').style.display='none'; });
-  // save handler 在 openAdjModal 裡動態設定，這裡只做關閉
   window._adjType = () => adjType;
   window._setAdjType = setAdjType;
 
@@ -400,8 +438,8 @@ function showPage(page) {
 
 function goNewOrder() {
   $('new-deadline').value = new Date().toISOString().slice(0,16);
-  $('new-order-title').value=''; $('new-store-name').value=''; $('new-payer').value=''; $('new-menu-items').innerHTML='';
-  document.querySelectorAll('.meal-type-btn').forEach((b,i)=>b.classList.toggle('active',i===0));
+  $('new-order-title').value=''; $('new-store-name').value=''; $('new-payer').value='';
+  $('new-payment-method').value=''; $('new-menu-items').innerHTML='';
   loadStoreButtons();
   showPage('new-order');
 }
@@ -422,6 +460,7 @@ async function loadTodayOrders() {
     const deadline = (o.deadline||'').replace('T',' ');
     const displayTitle = o.orderTitle || o.storeName;
     const subLine = o.orderTitle ? `${o.storeName}・` : '';
+    const names = o.entries.map(e=>`<span style="background:#f5f5f5;border-radius:20px;padding:3px 10px;font-size:12px;color:#555">${e.name}</span>`).join('');
     return `<div class="order-card" data-id="${o.id}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
@@ -433,6 +472,7 @@ async function loadTodayOrders() {
           <div style="font-size:12px;color:#888;margin-top:4px">${o.entries.length} 人已訂</div>
         </div>
       </div>
+      ${o.entries.length>0?`<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">${names}</div>`:''}
       <div style="margin-top:10px;font-size:13px;color:#aaa;display:flex;justify-content:space-between">
         <span>${o.menuItems.map(m=>m.name).slice(0,3).join('、')}${o.menuItems.length>3?'…':''}</span>
         <span style="color:#1a1a1a;font-weight:500">共 $${total}</span>
@@ -441,16 +481,55 @@ async function loadTodayOrders() {
   }).join('');
 
   document.querySelectorAll('.order-card').forEach(card => {
-    card.addEventListener('click', () => enterOrder(card.dataset.id));
+    card.addEventListener('click', () => enterOrderFlow(card.dataset.id));
   });
 }
 
-async function enterOrder(id) {
+// 點擊訂單卡片 → 先填名字
+async function enterOrderFlow(id) {
   const snap = await getDoc(doc(db,'orders',id));
   if(!snap.exists()) return;
   currentOrder = { id: snap.id, ...snap.data() };
+  showEnterNamePage(currentOrder);
+}
+
+// 顯示填名字頁
+function showEnterNamePage(order) {
+  $('enter-name-title').textContent = order.orderTitle || order.storeName;
+  // 預填上次的名字
+  const savedName = localStorage.getItem('myName') || '';
+  $('enter-name-input').value = savedName;
+  // 檢查是否已訂過
+  checkAlreadyOrdered(savedName);
+  $('enter-name-input').addEventListener('input', () => checkAlreadyOrdered($('enter-name-input').value.trim()));
+  showPage('enter-name');
+}
+
+function checkAlreadyOrdered(name) {
+  const hint = $('already-ordered-hint');
+  if(!name || !currentOrder) { hint.style.display='none'; return; }
+  const existing = currentOrder.entries.find(e=>e.name===name);
+  if(existing){
+    hint.style.display='block';
+    hint.textContent=`「${name}」已訂：${existing.items.map(it=>it.name+' x'+it.qty).join('、')} ($${existing.total})，進入後可修改。`;
+  } else {
+    hint.style.display='none';
+  }
+}
+
+// 填完名字，進入點餐
+function goToOrder() {
+  const name = $('enter-name-input').value.trim();
+  if(!name) return alert('請輸入名字');
+  localStorage.setItem('myName', name);
+  currentOrderer = name;
+  // 清空數量，重新從此人的既有訂單填入
   Object.keys(myQty).forEach(k => delete myQty[k]);
-  myQtyInitialized = false;
+  const existing = currentOrder.entries.find(e=>e.name===name);
+  if(existing){
+    existing.items.forEach(it => myQty[it.name]=it.qty);
+    setTimeout(()=>{ $('my-note').value=existing.note||''; },50);
+  }
   showPage('order');
   subscribeOrder();
   renderOrderPage();
@@ -485,9 +564,9 @@ function addMenuRow(name='', price='') {
 async function createOrder() {
   const orderTitle=$('new-order-title').value.trim();
   const storeName=$('new-store-name').value.trim();
-  const mealType='';
   const deadline=$('new-deadline').value;
   const payer=$('new-payer').value.trim();
+  const paymentMethod=$('new-payment-method').value.trim();
   const rows=document.querySelectorAll('#new-menu-items .menu-row');
   const menuItems=[];
   rows.forEach(r=>{
@@ -505,16 +584,13 @@ async function createOrder() {
   storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName){ if(s.orderHint) orderHint=s.orderHint; if(s.threshold) threshold=s.threshold; } });
 
   const ref=await addDoc(collection(db,'orders'),{
-    orderTitle,storeName,mealType,deadline,payer,menuItems,orderHint,threshold,
+    orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,
     status:'open',createdAt:new Date().toISOString(),entries:[]
   });
   $('create-btn').textContent='建立訂單'; $('create-btn').disabled=false;
-  currentOrder={id:ref.id,orderTitle,storeName,mealType,deadline,payer,menuItems,orderHint,threshold,status:'open',entries:[]};
-  Object.keys(myQty).forEach(k=>delete myQty[k]);
-  myQtyInitialized = false;
-  showPage('order');
-  subscribeOrder();
-  renderOrderPage();
+  currentOrder={id:ref.id,orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,status:'open',entries:[]};
+  // 建立者直接進入填名字頁
+  showEnterNamePage(currentOrder);
 }
 
 // ── 點餐頁面 ──
@@ -533,6 +609,14 @@ function renderOrderPage() {
   $('order-deadline').textContent='截止：'+(currentOrder.deadline||'').replace('T',' ');
   $('payer-name').textContent=currentOrder.payer;
   $('payer-name2').textContent=currentOrder.payer;
+
+  // 收款方式
+  if(currentOrder.paymentMethod){
+    $('payment-method-box').style.display='flex';
+    $('payment-method-text').textContent=currentOrder.paymentMethod;
+  } else {
+    $('payment-method-box').style.display='none';
+  }
 
   if(currentOrder.orderHint){ $('order-hint-box').style.display='flex'; $('order-hint-text').textContent=currentOrder.orderHint; }
   else $('order-hint-box').style.display='none';
@@ -563,6 +647,10 @@ function renderOrderPage() {
     tbox.style.display='none';
   }
 
+  // 顯示目前點餐人
+  $('order-my-av').textContent = currentOrderer ? currentOrderer[0] : '';
+  $('order-my-name').textContent = currentOrderer || '';
+
   // 菜單
   const menu=$('menu-list'); menu.innerHTML='';
   currentOrder.menuItems.forEach(item=>{
@@ -581,9 +669,10 @@ function renderOrderPage() {
     entriesEl.innerHTML='<div style="color:#bbb;font-size:13px;padding:.5rem 0">還沒有人訂餐</div>';
   } else {
     currentOrder.entries.forEach((e,i)=>{
+      const isMe = e.name===currentOrderer;
       const div=document.createElement('div'); div.className='person-row';
       div.innerHTML=`<div class="av">${e.name[0]}</div>
-        <div style="flex:1"><div class="name-text">${e.name}</div>
+        <div style="flex:1"><div class="name-text">${e.name}${isMe?'<span style="font-size:11px;background:#E6F1FB;color:#0C447C;border-radius:6px;padding:2px 6px;margin-left:6px">我</span>':''}</div>
         <div class="sub-text">${e.items.map(it=>`${it.name} x${it.qty}`).join('、')} → $${e.total}${e.note?' ・'+e.note:''}</div></div>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="badge ${e.paid?'b-ok':'b-warn'}">${e.paid?'已付':'未付'}</span>
@@ -619,25 +708,7 @@ function renderOrderPage() {
       `<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;border-top:1px solid #eee;margin-top:4px"><span>共 ${totalItems} 份</span><span>$${grandTotal}</span></div>`;
   }
 
-  // 還原我的訂單（只在第一次進入時從 Firestore 讀取，之後保留本地操作）
-  const myName=$('my-name').value.trim();
-  if(!myQtyInitialized && myName){
-    const myEntry=currentOrder.entries.find(e=>e.name===myName);
-    if(myEntry){
-      $('submit-btn').textContent='更新訂單';
-      $('my-note').value=myEntry.note||'';
-      myEntry.items.forEach(it=>{ myQty[it.name]=it.qty; });
-    }
-    myQtyInitialized = true;
-  } else if(!myQtyInitialized) {
-    myQtyInitialized = true;
-  }
-  // 更新菜單數量顯示（用本地 myQty，不覆蓋）
-  currentOrder.menuItems.forEach(item=>{
-    const key=item.name.replace(/[^a-zA-Z0-9]/g,'_');
-    const el=document.getElementById('q-'+key);
-    if(el) el.textContent=myQty[item.name]||0;
-  });
+  // 我的訂單摘要（用 myQty）
   updateMyTotal();
 }
 
@@ -656,18 +727,16 @@ function updateMyTotal() {
   $('my-total').textContent='$'+total;
   $('my-summary').innerHTML=items.length===0?'<span style="color:#bbb">尚未選擇品項</span>':
     items.map(([n,v])=>{ const item=currentOrder.menuItems.find(m=>m.name===n); return `<div class="summary-row"><span>${n} x${v}</span><span>$${item?item.price*v:0}</span></div>`; }).join('');
-  $('submit-btn').disabled=items.length===0||!$('my-name').value.trim();
+  $('submit-btn').disabled=items.length===0;
 }
 
 async function submitOrder() {
-  const name=$('my-name').value.trim();
-  if(!name) return alert('請輸入名字');
-  localStorage.setItem('myName',name);
+  if(!currentOrderer) return alert('請先輸入名字');
   const items=Object.entries(myQty).filter(([,v])=>v>0).map(([n,v])=>{ const item=currentOrder.menuItems.find(m=>m.name===n); return {name:n,qty:v,price:item.price}; });
   if(items.length===0) return alert('請選擇品項');
   const total=items.reduce((s,it)=>s+it.price*it.qty,0);
-  const entry={name,items,note:$('my-note').value,total,paid:false,createdAt:new Date().toISOString()};
-  const idx=currentOrder.entries.findIndex(e=>e.name===name);
+  const entry={name:currentOrderer,items,note:$('my-note').value,total,paid:false,createdAt:new Date().toISOString()};
+  const idx=currentOrder.entries.findIndex(e=>e.name===currentOrderer);
   const updated=idx>=0?currentOrder.entries.map((e,i)=>i===idx?entry:e):[...currentOrder.entries,entry];
   await updateDoc(doc(db,'orders',currentOrder.id),{entries:updated});
   $('submit-btn').textContent='已送出！';
@@ -714,13 +783,13 @@ async function confirmDeleteOrder() {
 async function loadAccounts() {
   const snap=await getDocs(collection(db,'orders'));
   const orders=snap.docs.map(d=>({id:d.id,...d.data()}));
-  const allEntries=orders.flatMap(o=>o.entries.map((e,i)=>({...e,orderId:o.id,entryIndex:i,displayTitle:o.orderTitle||o.storeName,storeName:o.storeName,payer:o.payer,date:o.createdAt?.slice(0,10)})));
+  const allEntries=orders.flatMap(o=>o.entries.map((e,i)=>({...e,orderId:o.id,entryIndex:i,displayTitle:o.orderTitle||o.storeName,payer:o.payer,date:o.createdAt?.slice(0,10)})));
   const people={};
   allEntries.forEach(e=>{
     if(!people[e.name]) people[e.name]={total:0,unpaid:0};
-    const amt = e.total + (e.adjustment||0);
-    people[e.name].total += amt;
-    if(!e.paid) people[e.name].unpaid += amt;
+    const amt=e.total+(e.adjustment||0);
+    people[e.name].total+=amt;
+    if(!e.paid) people[e.name].unpaid+=amt;
   });
   $('stat-spent').textContent='$'+Object.values(people).reduce((s,p)=>s+p.total,0);
   $('stat-unpaid').textContent='$'+Object.values(people).reduce((s,p)=>s+Math.max(0,p.unpaid),0);
@@ -757,7 +826,8 @@ async function loadHistory() {
   const list=$('history-list');
   list.innerHTML=orders.length===0?'<div style="color:#bbb;font-size:13px">尚無已結束的訂單</div>':
     orders.map(o=>{
-      const total=o.entries.reduce((s,e)=>s+e.total,0);
+      // 總金額含調帳
+      const total=o.entries.reduce((s,e)=>s+e.total+(e.adjustment||0),0);
       const allPaid=o.entries.length>0&&o.entries.every(e=>e.paid);
       return `<div class="order-hist" style="cursor:pointer" data-id="${o.id}">
         <div>
@@ -783,14 +853,13 @@ function openHistoryDetail(id, orders) {
   function renderDetail() {
     const total=o.entries.reduce((s,e)=>s+e.total+(e.adjustment||0),0);
     $('hd-title').textContent=o.orderTitle||o.storeName;
-    $('hd-meta').textContent=`${o.createdAt?.slice(0,10)} · 店家：${o.storeName} · 付款人：${o.payer}`;
-    // 人員明細
+    $('hd-meta').textContent=`${o.createdAt?.slice(0,10)} · 店家：${o.storeName} · 付款人：${o.payer}${o.paymentMethod?' · 收款：'+o.paymentMethod:''}`;
     $('hd-people').innerHTML=`<div class="sec-title">訂餐明細</div>`+
       (o.entries.length===0?'<div style="color:#bbb;font-size:13px">無訂單記錄</div>':
       o.entries.map((e,i)=>{
         const finalAmt=e.total+(e.adjustment||0);
         const adjBadge=e.adjustment
-          ? `<span style="font-size:11px;padding:2px 6px;border-radius:6px;${e.adjustment>0?'background:#FCEBEB;color:#791F1F':'background:#EAF3DE;color:#27500A'};margin-left:4px">${e.adjustment>0?'+':''}${e.adjustment}${e.adjustNote?' '+e.adjustNote:''}</span>`
+          ? `<span style="font-size:11px;padding:2px 6px;border-radius:6px;${e.adjustment>0?'background:#FCEBEB;color:#791F1F':'background:#EAF3DE;color:#27a354'};margin-left:4px">${e.adjustment>0?'+':''}${e.adjustment}${e.adjustNote?' '+e.adjustNote:''}</span>`
           : '';
         return `<div class="person-row">
           <div class="av">${e.name[0]}</div>
@@ -806,12 +875,10 @@ function openHistoryDetail(id, orders) {
         </div>`;
       }).join(''));
 
-    // 調帳按鈕事件
     document.querySelectorAll('.hd-adj-btn').forEach(btn=>{
       btn.addEventListener('click',()=>openAdjModal(o, Number(btn.dataset.index), renderDetail));
     });
 
-    // 彙整
     const map={};
     o.entries.forEach(e=>{ e.items.forEach(it=>{ if(!map[it.name]) map[it.name]={qty:0,price:it.price}; map[it.name].qty+=it.qty; }); });
     const adjTotal=o.entries.reduce((s,e)=>s+(e.adjustment||0),0);
@@ -821,12 +888,9 @@ function openHistoryDetail(id, orders) {
           <span>${name} x${v.qty}</span><span style="font-weight:500">$${v.price*v.qty}</span>
         </div>`).join('')+
       (adjTotal!==0?`<div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid #e5e5e5;color:${adjTotal>0?'#dc2626':'#27a354'}"><span>調帳合計</span><span style="font-weight:500">${adjTotal>0?'+':''}${adjTotal}</span></div>`:'')
-      +`<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;margin-top:4px">
-        <span>合計</span><span>$${total}</span>
-      </div>`;
+      +`<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:500;padding:10px 0 0;margin-top:4px"><span>合計</span><span>$${total}</span></div>`;
   }
 
-  // 刪除按鈕
   $('hd-delete-btn').onclick=async()=>{
     if(!confirm(`確定要刪除「${o.orderTitle||o.storeName}」這筆歷史訂單？此操作無法復原。`)) return;
     await deleteDoc(doc(db,'orders',o.id));
@@ -919,6 +983,5 @@ async function saveNewStore() {
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
-
 </body>
 </html>
