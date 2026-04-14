@@ -420,7 +420,7 @@ function init() {
   $('add-edit-menu-btn').addEventListener('click', () => addStoreRow('edit-menu-items'));
   $('save-store-edit-btn').addEventListener('click', saveStoreEdit);
   $('cancel-store-edit-btn').addEventListener('click', () => $('edit-store-modal').style.display='none');
-  $('edit-store-modal').addEventListener('click', e => { if(e.target===$('edit-store-modal')) $('edit-store-modal').style.display='none'; });
+  // 編輯店家 modal 不允許點空白關閉，避免誤觸
   $('delete-order-modal').addEventListener('click', e => { if(e.target===$('delete-order-modal')) $('delete-order-modal').style.display='none'; });
   $('close-history-modal-btn').addEventListener('click', ()=>$('history-detail-modal').style.display='none');
   $('history-detail-modal').addEventListener('click', e=>{ if(e.target===$('history-detail-modal')) $('history-detail-modal').style.display='none'; });
