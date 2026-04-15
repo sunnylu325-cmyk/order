@@ -190,6 +190,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         <span style="font-size:13px;color:#f59e0b" id="order-deadline"></span>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn-sm" id="copy-order-link-btn" style="color:#0C447C;border-color:#B5D4F4">分享連結</button>
         <button class="btn-sm" id="close-order-btn">關閉訂單</button>
         <button class="btn-sm" id="delete-order-btn" style="border-color:#fca5a5;color:#dc2626">刪除訂單</button>
       </div>
@@ -410,6 +411,21 @@ function init() {
   $('create-btn').addEventListener('click', createOrder);
   $('submit-btn').addEventListener('click', submitOrder);
   $('close-order-btn').addEventListener('click', closeOrder);
+  $('copy-order-link-btn').addEventListener('click', () => {
+    if(!currentOrder) return;
+    const url = window.location.origin + window.location.pathname + '?order=' + currentOrder.id;
+    navigator.clipboard.writeText(url).then(() => {
+      const btn = $('copy-order-link-btn');
+      const orig = btn.textContent;
+      btn.textContent = '已複製！';
+      btn.style.color = '#27500A';
+      btn.style.borderColor = '#9FE1CB';
+      setTimeout(() => { btn.textContent = orig; btn.style.color = '#0C447C'; btn.style.borderColor = '#B5D4F4'; }, 2000);
+    }).catch(() => {
+      const url = window.location.origin + window.location.pathname + '?order=' + currentOrder.id;
+      prompt('複製這個連結：', url);
+    });
+  });
   $('delete-order-btn').addEventListener('click', openDeleteModal);
   $('confirm-delete-btn').addEventListener('click', confirmDeleteOrder);
   $('cancel-delete-btn').addEventListener('click', () => $('delete-order-modal').style.display='none');
@@ -448,6 +464,13 @@ function init() {
 
   showPage('list');
   loadTodayOrders();
+
+  // 深層連結：如果網址有 ?order=xxx 直接進入該訂單
+  const urlParams = new URLSearchParams(window.location.search);
+  const orderId = urlParams.get('order');
+  if(orderId){
+    enterOrderFlow(orderId);
+  }
 }
 
 function showPage(page) {
@@ -493,15 +516,34 @@ async function loadTodayOrders() {
         </div>
       </div>
       ${o.entries.length>0?`<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">${names}</div>`:''}
-      <div style="margin-top:10px;font-size:13px;color:#aaa;display:flex;justify-content:space-between">
+      <div style="margin-top:10px;font-size:13px;color:#aaa;display:flex;justify-content:space-between;align-items:center">
         <span>${o.menuItems.map(m=>m.name).slice(0,3).join('、')}${o.menuItems.length>3?'…':''}</span>
-        <span style="color:#1a1a1a;font-weight:500">共 $${total}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:#1a1a1a;font-weight:500">共 $${total}</span>
+          <button class="copy-link-btn btn-sm" data-id="${o.id}" style="font-size:11px;padding:3px 8px;color:#0C447C;border-color:#B5D4F4" onclick="event.stopPropagation()">分享連結</button>
+        </div>
       </div>
     </div>`;
   }).join('');
 
   document.querySelectorAll('.order-card').forEach(card => {
     card.addEventListener('click', () => enterOrderFlow(card.dataset.id));
+  });
+  document.querySelectorAll('.copy-link-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const url = window.location.origin + window.location.pathname + '?order=' + id;
+      navigator.clipboard.writeText(url).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '已複製！';
+        btn.style.color = '#27500A';
+        btn.style.borderColor = '#9FE1CB';
+        setTimeout(() => { btn.textContent = orig; btn.style.color = '#0C447C'; btn.style.borderColor = '#B5D4F4'; }, 2000);
+      }).catch(() => {
+        prompt('複製這個連結：', window.location.origin + window.location.pathname + '?order=' + id);
+      });
+    });
   });
 }
 
