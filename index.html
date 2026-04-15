@@ -191,8 +191,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
         <button class="btn-sm" id="copy-order-link-btn" style="color:#0C447C;border-color:#B5D4F4">分享連結</button>
-        <button class="btn-sm" id="close-order-btn">關閉訂單</button>
+        <button class="btn-sm" id="pause-order-btn">暫停接單</button>
+        <button class="btn-sm" id="close-order-btn">結束訂單</button>
         <button class="btn-sm" id="delete-order-btn" style="border-color:#fca5a5;color:#dc2626">刪除訂單</button>
+      </div>
+    </div>
+    <div id="paused-box" style="display:none;background:#FCEBEB;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:none;align-items:center;gap:10px">
+      <span style="font-size:15px">⏸️</span>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:500;color:#791F1F">訂單已暫停接單</div>
+        <div style="font-size:12px;color:#dc2626;margin-top:2px">發起人已暫停，目前無法新增或修改訂單</div>
       </div>
     </div>
     <div class="payer-box">
@@ -411,6 +419,7 @@ function init() {
   $('create-btn').addEventListener('click', createOrder);
   $('submit-btn').addEventListener('click', submitOrder);
   $('close-order-btn').addEventListener('click', closeOrder);
+  $('pause-order-btn').addEventListener('click', pauseOrder);
   $('copy-order-link-btn').addEventListener('click', () => {
     if(!currentOrder) return;
     const url = window.location.origin + window.location.pathname + '?order=' + currentOrder.id;
@@ -492,7 +501,7 @@ async function loadTodayOrders() {
   const today = new Date().toISOString().slice(0,10);
   const snap = await getDocs(query(collection(db,'orders'), orderBy('createdAt','desc')));
   const orders = snap.docs.map(d=>({id:d.id,...d.data()}))
-    .filter(o => o.status==='open' && o.createdAt?.slice(0,10)===today);
+    .filter(o => (o.status==='open'||o.status==='paused') && o.createdAt?.slice(0,10)===today);
   const list = $('today-list');
   if(orders.length===0){
     list.innerHTML='<div style="text-align:center;padding:3rem;color:#888"><div style="font-size:16px;margin-bottom:8px">今天還沒有訂單</div><div style="font-size:13px">點右上角「+ 新增訂單」發起</div></div>';
@@ -511,7 +520,7 @@ async function loadTodayOrders() {
           <div style="font-size:12px;color:#888;margin-top:4px">${subLine}發起人：${o.payer}・截止 ${deadline}</div>
         </div>
         <div style="text-align:right;flex-shrink:0;margin-left:12px">
-          <span class="badge b-info">訂購中</span>
+          <span class="badge ${o.status==='paused'?'b-warn':'b-info'}">${o.status==='paused'?'已暫停':'訂購中'}</span>
           <div style="font-size:12px;color:#888;margin-top:4px">${o.entries.length} 人已訂</div>
         </div>
       </div>
@@ -675,6 +684,20 @@ function renderOrderPage() {
   $('payer-name').textContent=currentOrder.payer;
   $('payer-name2').textContent=currentOrder.payer;
 
+  // 暫停狀態
+  const isPaused = currentOrder.status==='paused';
+  const pausedBox = $('paused-box');
+  if(pausedBox) pausedBox.style.display = isPaused ? 'flex' : 'none';
+  const pauseBtn = $('pause-order-btn');
+  if(pauseBtn){
+    pauseBtn.textContent = isPaused ? '恢復接單' : '暫停接單';
+    pauseBtn.style.background = isPaused ? '#1a1a1a' : '';
+    pauseBtn.style.color = isPaused ? '#fff' : '';
+    pauseBtn.style.borderColor = isPaused ? '#1a1a1a' : '';
+  }
+  // 暫停時禁用送出按鈕
+  $('submit-btn').disabled = isPaused || Object.entries(myQty).filter(([,v])=>v>0).length===0 || !currentOrderer;
+
   // 收款方式
   if(currentOrder.paymentMethod){
     $('payment-method-box').style.display='flex';
@@ -836,9 +859,20 @@ async function deleteEntry(index) {
   await updateDoc(doc(db,'orders',currentOrder.id),{entries:updated});
 }
 
+async function pauseOrder() {
+  if(!currentOrder) return;
+  const isPaused = currentOrder.status==='paused';
+  if(isPaused){
+    await updateDoc(doc(db,'orders',currentOrder.id),{status:'open'});
+  } else {
+    if(!confirm('確定暫停接單？暫停後同事無法新增或修改訂單，但你可以隨時恢復。')) return;
+    await updateDoc(doc(db,'orders',currentOrder.id),{status:'paused'});
+  }
+}
+
 async function closeOrder() {
   if(!currentOrder) return;
-  if(!confirm('確定關閉訂單？關閉後將無法新增或修改訂餐。')) return;
+  if(!confirm('確定結束訂單？結束後訂單將移到歷史記錄，無法再修改。')) return;
   await updateDoc(doc(db,'orders',currentOrder.id),{status:'closed'});
   if(unsubOrder) unsubOrder();
   currentOrder=null;
