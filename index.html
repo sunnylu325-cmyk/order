@@ -543,12 +543,15 @@ function goToOrder() {
   if(!name) return alert('請輸入名字');
   localStorage.setItem('myName', name);
   currentOrderer = name;
-  // 清空數量，重新從此人的既有訂單填入
+  // 完整清空 myQty
   Object.keys(myQty).forEach(k => delete myQty[k]);
+  // 清空備注
+  $('my-note').value = '';
+  // 從此人既有訂單填入
   const existing = currentOrder.entries.find(e=>e.name===name);
   if(existing){
-    existing.items.forEach(it => myQty[it.name]=it.qty);
-    setTimeout(()=>{ $('my-note').value=existing.note||''; },50);
+    existing.items.forEach(it => { myQty[it.name] = it.qty; });
+    $('my-note').value = existing.note||'';
   }
   showPage('order');
   subscribeOrder();
@@ -680,14 +683,27 @@ function renderOrderPage() {
 
   // 菜單
   const menu=$('menu-list'); menu.innerHTML='';
-  currentOrder.menuItems.forEach(item=>{
-    const key=item.name.replace(/[^a-zA-Z0-9]/g,'_');
+  currentOrder.menuItems.forEach((item, idx)=>{
     const div=document.createElement('div'); div.className='menu-item';
-    div.innerHTML=`<span>${item.name}</span><div style="display:flex;align-items:center;gap:8px"><span class="price-label">$${item.price}</span><button class="qb" data-name="${item.name}" data-delta="-1">−</button><span id="q-${key}">${myQty[item.name]||0}</span><button class="qb" data-name="${item.name}" data-delta="1">+</button></div>`;
+    const qtyEl = document.createElement('span');
+    qtyEl.className = 'qty-display';
+    qtyEl.dataset.idx = idx;
+    qtyEl.textContent = myQty[item.name]||0;
+    const minusBtn = document.createElement('button');
+    minusBtn.className='qb'; minusBtn.textContent='−';
+    minusBtn.addEventListener('click', ()=>chg(item.name, -1, idx));
+    const plusBtn = document.createElement('button');
+    plusBtn.className='qb'; plusBtn.textContent='+';
+    plusBtn.addEventListener('click', ()=>chg(item.name, 1, idx));
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = item.name;
+    const priceSpan = document.createElement('span');
+    priceSpan.className='price-label'; priceSpan.textContent='$'+item.price;
+    const ctrl = document.createElement('div');
+    ctrl.style.cssText='display:flex;align-items:center;gap:8px';
+    ctrl.appendChild(priceSpan); ctrl.appendChild(minusBtn); ctrl.appendChild(qtyEl); ctrl.appendChild(plusBtn);
+    div.appendChild(nameSpan); div.appendChild(ctrl);
     menu.appendChild(div);
-  });
-  menu.querySelectorAll('.qb').forEach(btn=>{
-    btn.addEventListener('click',()=>chg(btn.dataset.name, Number(btn.dataset.delta)));
   });
 
   // 已訂同事
@@ -739,11 +755,13 @@ function renderOrderPage() {
   updateMyTotal();
 }
 
-function chg(name, delta) {
+function chg(name, delta, idx) {
   myQty[name]=Math.max(0,(myQty[name]||0)+delta);
-  const key=name.replace(/[^a-zA-Z0-9]/g,'_');
-  const el=document.getElementById('q-'+key);
-  if(el) el.textContent=myQty[name];
+  // 用 idx 精確找到對應的數量顯示元素
+  if(idx !== undefined) {
+    const el = document.querySelector(`.qty-display[data-idx="${idx}"]`);
+    if(el) el.textContent = myQty[name];
+  }
   updateMyTotal();
 }
 
@@ -754,7 +772,7 @@ function updateMyTotal() {
   $('my-total').textContent='$'+total;
   $('my-summary').innerHTML=items.length===0?'<span style="color:#bbb">尚未選擇品項</span>':
     items.map(([n,v])=>{ const item=currentOrder.menuItems.find(m=>m.name===n); return `<div class="summary-row"><span>${n} x${v}</span><span>$${item?item.price*v:0}</span></div>`; }).join('');
-  $('submit-btn').disabled=items.length===0;
+  $('submit-btn').disabled=items.length===0||!currentOrderer;
 }
 
 async function submitOrder() {
