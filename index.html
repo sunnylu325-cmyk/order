@@ -205,10 +205,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     </div>
     <div class="payer-box">
       <div style="width:28px;height:28px;border-radius:50%;background:#B5D4F4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#0C447C;flex-shrink:0"></div>
-      <div>
+      <div style="flex:1">
         <div style="font-size:13px;font-weight:500;color:#0C447C">本次付款人：<span id="payer-name"></span></div>
         <div style="font-size:12px;color:#185FA5;margin-top:1px">訂單結束後，請將餐費交給 <span id="payer-name2"></span></div>
       </div>
+      <button class="btn-sm" id="edit-payer-btn" style="font-size:11px;padding:3px 8px;flex-shrink:0">修改</button>
     </div>
     <div class="payment-box" id="payment-method-box" style="display:none">
       <span style="font-size:15px">💳</span>
@@ -320,6 +321,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 </div>
 
+<!-- 修改付款人 Modal -->
+<div class="modal-overlay" id="edit-payer-modal">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-title">修改付款人</div>
+    <div style="font-size:13px;color:#888;margin-bottom:1rem">修改後帳務記錄會同步更新，欠款對象也會跟著改變。</div>
+    <div class="input-group">
+      <label class="lbl">新的付款人姓名</label>
+      <input class="inp" id="new-payer-name" placeholder="輸入付款人姓名" style="max-width:240px">
+    </div>
+    <div id="edit-payer-error" style="font-size:13px;color:#dc2626;margin-bottom:.5rem;min-height:18px"></div>
+    <div style="display:flex;gap:8px">
+      <button id="save-payer-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
+      <button class="btn-sm" id="cancel-payer-btn">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- 刪除訂單 Modal -->
 <div class="modal-overlay" id="delete-order-modal">
   <div class="modal" style="max-width:420px">
@@ -419,6 +437,20 @@ function init() {
   $('create-btn').addEventListener('click', createOrder);
   $('submit-btn').addEventListener('click', submitOrder);
   $('close-order-btn').addEventListener('click', closeOrder);
+  $('edit-payer-btn').addEventListener('click', () => {
+    if(!currentOrder) return;
+    $('new-payer-name').value = currentOrder.payer;
+    $('edit-payer-error').textContent = '';
+    $('edit-payer-modal').style.display = 'flex';
+  });
+  $('cancel-payer-btn').addEventListener('click', () => $('edit-payer-modal').style.display='none');
+  $('edit-payer-modal').addEventListener('click', e => { if(e.target===$('edit-payer-modal')) $('edit-payer-modal').style.display='none'; });
+  $('save-payer-btn').addEventListener('click', async () => {
+    const newPayer = $('new-payer-name').value.trim();
+    if(!newPayer){ $('edit-payer-error').textContent='請輸入付款人姓名'; return; }
+    await updateDoc(doc(db,'orders',currentOrder.id),{ payer: newPayer });
+    $('edit-payer-modal').style.display='none';
+  });
   $('pause-order-btn').addEventListener('click', pauseOrder);
   $('copy-order-link-btn').addEventListener('click', () => {
     if(!currentOrder) return;
@@ -974,7 +1006,21 @@ function openHistoryDetail(id, orders) {
   function renderDetail() {
     const total=o.entries.reduce((s,e)=>s+e.total+(e.adjustment||0),0);
     $('hd-title').textContent=o.orderTitle||o.storeName;
-    $('hd-meta').textContent=`${o.createdAt?.slice(0,10)} · 店家：${o.storeName} · 付款人：${o.payer}${o.paymentMethod?' · 收款：'+o.paymentMethod:''}`;
+    $('hd-meta').innerHTML=`${o.createdAt?.slice(0,10)} · 店家：${o.storeName} · 付款人：<span style="font-weight:500">${o.payer}</span> <button class="btn-sm" id="hd-edit-payer-btn" style="font-size:11px;padding:2px 7px">修改</button>${o.paymentMethod?' · 收款：'+o.paymentMethod:''}`;
+    $('hd-edit-payer-btn')?.addEventListener('click', () => {
+      $('new-payer-name').value = o.payer;
+      $('edit-payer-error').textContent = '';
+      $('edit-payer-modal').style.display = 'flex';
+      $('save-payer-btn').onclick = async () => {
+        const newPayer = $('new-payer-name').value.trim();
+        if(!newPayer){ $('edit-payer-error').textContent='請輸入付款人姓名'; return; }
+        await updateDoc(doc(db,'orders',o.id),{ payer: newPayer });
+        o.payer = newPayer;
+        $('edit-payer-modal').style.display='none';
+        renderDetail();
+        loadHistory();
+      };
+    });
     $('hd-people').innerHTML=`<div class="sec-title">訂餐明細</div>`+
       (o.entries.length===0?'<div style="color:#bbb;font-size:13px">無訂單記錄</div>':
       o.entries.map((e,i)=>{
