@@ -119,6 +119,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         </div>
         <div class="input-group"><label class="lbl">備注</label><input class="inp" id="ns-note" placeholder="例：需提前預訂" style="max-width:300px"></div>
         <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="ns-order-hint" placeholder="例：白飯或紫米可選"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
+        <div class="input-group">
+          <label class="lbl">菜單圖片網址 <span style="color:#aaa;font-weight:400">（選填）</span></label>
+          <input class="inp" id="ns-menu-image" placeholder="貼上圖片連結，例：https://..." style="max-width:400px">
+          <div style="font-size:12px;color:#aaa;margin-top:4px">把菜單拍照上傳到 Google 相簿或 Imgur，複製圖片連結貼上</div>
+        </div>
         <div class="input-group"><label class="lbl">菜單品項</label><div id="new-store-items"></div><button class="btn-sm" id="add-store-item-btn" style="margin-top:4px">+ 新增品項</button></div>
         <div style="display:flex;gap:8px;margin-top:.5rem">
           <button id="save-new-store-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存店家</button>
@@ -232,6 +237,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
         <div style="font-size:13px;color:#856404" id="order-hint-text"></div>
       </div>
     </div>
+    <div id="store-menu-image-box" style="display:none;margin-bottom:1rem">
+      <div class="card" style="padding:.75rem">
+        <div class="sec-title">菜單圖片</div>
+        <img id="store-menu-image" src="" style="max-width:100%;border-radius:8px;border:1px solid #eee;cursor:pointer" onclick="openImageModal(this.src)" title="點擊放大">
+      </div>
+    </div>
     <div class="grid2">
       <div>
         <div class="card"><div class="sec-title">菜單</div><div id="menu-list"></div></div>
@@ -291,6 +302,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
     </div>
     <div class="input-group"><label class="lbl">備注</label><input class="inp" id="edit-note" placeholder="例：需提前預訂"></div>
     <div class="input-group"><label class="lbl">點餐提醒</label><input class="inp" id="edit-order-hint" placeholder="例：白飯或紫米可選"><div style="font-size:12px;color:#aaa;margin-top:4px">同事訂餐時會看到這個提示</div></div>
+    <div class="input-group">
+      <label class="lbl">菜單圖片網址 <span style="color:#aaa;font-weight:400">（選填）</span></label>
+      <input class="inp" id="edit-menu-image" placeholder="貼上圖片連結，例：https://...">
+      <div id="edit-menu-image-preview" style="margin-top:8px;display:none">
+        <img id="edit-menu-image-img" src="" style="max-width:100%;border-radius:8px;border:1px solid #eee;cursor:pointer" title="點擊放大">
+      </div>
+    </div>
     <div class="input-group"><label class="lbl">菜單品項</label><div id="edit-menu-items"></div><button class="btn-sm" id="add-edit-menu-btn" style="margin-top:4px">+ 新增品項</button></div>
     <div style="display:flex;gap:8px;margin-top:.5rem">
       <button id="save-store-edit-btn" style="padding:9px 16px;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-size:14px;cursor:pointer">儲存</button>
@@ -371,6 +389,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
   </div>
 </div>
 
+<!-- 圖片放大 Modal -->
+<div id="image-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center;padding:1rem" onclick="this.style.display='none'">
+  <img id="image-modal-img" src="" style="max-width:100%;max-height:90vh;border-radius:8px;object-fit:contain">
+</div>
+
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
 import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
@@ -409,6 +432,12 @@ function initPassword() {
 }
 
 // ── 初始化 ──
+function openImageModal(src) {
+  const modal = document.getElementById('image-modal');
+  document.getElementById('image-modal-img').src = src;
+  modal.style.display = 'flex';
+}
+
 function init() {
   initPassword();
   $('today-date').textContent = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
@@ -476,6 +505,13 @@ function init() {
   $('add-store-item-btn').addEventListener('click', () => addStoreRow('new-store-items'));
   $('add-edit-menu-btn').addEventListener('click', () => addStoreRow('edit-menu-items'));
   $('save-store-edit-btn').addEventListener('click', saveStoreEdit);
+  $('edit-menu-image').addEventListener('input', () => {
+    const val = $('edit-menu-image').value.trim();
+    const preview = $('edit-menu-image-preview');
+    const img = $('edit-menu-image-img');
+    if(val){ preview.style.display='block'; img.src=val; }
+    else { preview.style.display='none'; img.src=''; }
+  });
   $('cancel-store-edit-btn').addEventListener('click', () => $('edit-store-modal').style.display='none');
   // 編輯店家 modal 不允許點空白關閉，避免誤觸
   $('delete-order-modal').addEventListener('click', e => { if(e.target===$('delete-order-modal')) $('delete-order-modal').style.display='none'; });
@@ -687,14 +723,15 @@ async function createOrder() {
 
   const storeSnap=await getDocs(collection(db,'stores'));
   let orderHint='', threshold=null, thresholdType='amount';
-  storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName){ if(s.orderHint) orderHint=s.orderHint; if(s.threshold) { threshold=s.threshold; thresholdType=s.thresholdType||'amount'; } } });
+  let menuImage='';
+  storeSnap.docs.forEach(d=>{ const s=d.data(); if(s.name===storeName){ if(s.orderHint) orderHint=s.orderHint; if(s.threshold) { threshold=s.threshold; thresholdType=s.thresholdType||'amount'; } if(s.menuImage) menuImage=s.menuImage; } });
 
   const ref=await addDoc(collection(db,'orders'),{
-    orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,thresholdType,
+    orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,menuImage,threshold,thresholdType,
     status:'open',createdAt:new Date().toISOString(),entries:[]
   });
   $('create-btn').textContent='建立訂單'; $('create-btn').disabled=false;
-  currentOrder={id:ref.id,orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,threshold,thresholdType,status:'open',entries:[]};
+  currentOrder={id:ref.id,orderTitle,storeName,deadline,payer,paymentMethod,menuItems,orderHint,menuImage,threshold,thresholdType,status:'open',entries:[]};
   // 建立者直接進入填名字頁
   showEnterNamePage(currentOrder);
 }
@@ -740,6 +777,17 @@ function renderOrderPage() {
 
   if(currentOrder.orderHint){ $('order-hint-box').style.display='flex'; $('order-hint-text').textContent=currentOrder.orderHint; }
   else $('order-hint-box').style.display='none';
+
+  // 菜單圖片
+  const menuImgBox=$('store-menu-image-box');
+  const menuImg=$('store-menu-image');
+  if(currentOrder.menuImage){
+    menuImgBox.style.display='block';
+    menuImg.src=currentOrder.menuImage;
+  } else {
+    menuImgBox.style.display='none';
+    menuImg.src='';
+  }
 
   // 外送門檻
   const tbox=$('threshold-box');
@@ -1098,7 +1146,8 @@ async function loadStores() {
   const stores=snap.docs.map(d=>({id:d.id,...d.data()}));
   const list=$('stores-list');
   list.innerHTML=stores.length===0?'<div style="color:#bbb;font-size:13px;padding-bottom:1rem">尚無店家</div>':
-    stores.map(s=>`<div class="store-item"><div style="display:flex;align-items:flex-start;gap:10px"><div style="flex:1"><div style="font-size:14px;font-weight:500">${s.name}</div><div class="sub-text" style="margin-top:3px">${s.menuItems.map(m=>`${m.name} $${m.price}`).join('、')}</div><div style="font-size:12px;margin-top:4px;color:#888">外送門檻：<strong style="color:#1a1a1a">${s.threshold?(s.thresholdType==='qty'?s.threshold+' 份':'$'+s.threshold):'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>${s.orderHint?`<div style="font-size:12px;margin-top:5px;background:#FFF3CD;color:#856404;padding:4px 8px;border-radius:6px;display:inline-block">點餐提醒：${s.orderHint}</div>`:''}</div><button class="btn-sm edit-store-btn" data-id="${s.id}">編輯</button></div></div>`).join('');
+    stores.map(s=>`<div class="store-item"><div style="display:flex;align-items:flex-start;gap:10px"><div style="flex:1"><div style="font-size:14px;font-weight:500">${s.name}</div><div class="sub-text" style="margin-top:3px">${s.menuItems.map(m=>`${m.name} $${m.price}`).join('、')}</div><div style="font-size:12px;margin-top:4px;color:#888">外送門檻：<strong style="color:#1a1a1a">${s.threshold?(s.thresholdType==='qty'?s.threshold+' 份':'$'+s.threshold):'無門檻'}</strong>${s.note?' ・'+s.note:''}</div>${s.orderHint?`<div style="font-size:12px;margin-top:5px;background:#FFF3CD;color:#856404;padding:4px 8px;border-radius:6px;display:inline-block">點餐提醒：${s.orderHint}</div>`:''}
+          ${s.menuImage?`<div style="margin-top:8px"><img src="${s.menuImage}" style="max-width:100%;max-height:120px;border-radius:8px;border:1px solid #eee;object-fit:cover;cursor:pointer" onclick="openImageModal('${s.menuImage}')" title="點擊放大"></div>`:''}</div><button class="btn-sm edit-store-btn" data-id="${s.id}">編輯</button></div></div>`).join('');
   list.querySelectorAll('.edit-store-btn').forEach(btn=>{
     btn.addEventListener('click',()=>openStoreEdit(btn.dataset.id));
   });
@@ -1119,6 +1168,11 @@ async function openStoreEdit(id) {
   $('edit-thresh-qty-btn').style.color=tt==='qty'?'#fff':'#888';
   const c=$('edit-menu-items'); c.innerHTML='';
   s.menuItems.forEach(m=>addStoreRow('edit-menu-items',m.name,m.price));
+  $('edit-menu-image').value = s.menuImage||'';
+  const preview = $('edit-menu-image-preview');
+  const img = $('edit-menu-image-img');
+  if(s.menuImage){ preview.style.display='block'; img.src=s.menuImage; }
+  else { preview.style.display='none'; img.src=''; }
   $('edit-store-modal').style.display='flex';
 }
 
@@ -1129,7 +1183,7 @@ async function saveStoreEdit() {
   const menuItems=[];
   rows.forEach(r=>{ const inputs=r.querySelectorAll('input'); const n=inputs[0].value.trim(),p=Number(inputs[1].value); if(n&&p) menuItems.push({name:n,price:p}); });
   if(menuItems.length===0) return alert('請至少新增一個品項');
-  await updateDoc(doc(db,'stores',id),{name,threshold:Number($('edit-threshold').value)||null,thresholdType:$('edit-threshold-type').value,note:$('edit-note').value,orderHint:$('edit-order-hint').value,menuItems});
+  await updateDoc(doc(db,'stores',id),{name,threshold:Number($('edit-threshold').value)||null,thresholdType:$('edit-threshold-type').value,note:$('edit-note').value,orderHint:$('edit-order-hint').value,menuImage:$('edit-menu-image').value.trim(),menuItems});
   $('edit-store-modal').style.display='none';
   loadStores();
 }
@@ -1148,8 +1202,8 @@ async function saveNewStore() {
   const menuItems=[];
   rows.forEach(r=>{ const inputs=r.querySelectorAll('input'); const n=inputs[0].value.trim(),p=Number(inputs[1].value); if(n&&p) menuItems.push({name:n,price:p}); });
   if(menuItems.length===0) return alert('請至少新增一個品項');
-  await addDoc(collection(db,'stores'),{name,threshold:Number($('ns-threshold').value)||null,thresholdType:$('ns-threshold-type').value,note:$('ns-note').value,orderHint:$('ns-order-hint').value,menuItems});
-  $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value=''; $('ns-order-hint').value='';
+  await addDoc(collection(db,'stores'),{name,threshold:Number($('ns-threshold').value)||null,thresholdType:$('ns-threshold-type').value,note:$('ns-note').value,orderHint:$('ns-order-hint').value,menuImage:$('ns-menu-image').value.trim(),menuItems});
+  $('ns-name').value=''; $('ns-threshold').value=''; $('ns-note').value=''; $('ns-order-hint').value=''; $('ns-menu-image').value='';
   $('new-store-items').innerHTML='';
   $('new-store-form').style.display='none';
   loadStores();
